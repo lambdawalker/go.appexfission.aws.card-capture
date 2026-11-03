@@ -1,0 +1,668 @@
+{
+  "schemaVersion": 1,
+  "scope": {
+    "repository": "go.appexfission.aws.card-capture",
+    "environment": "preview"
+  },
+  "metadata": {
+    "startedAt": "0001-01-01T00:00:00Z",
+    "finishedAt": "0001-01-01T00:00:00Z"
+  },
+  "cacheLoaded": false,
+  "warnings": [
+    "illustrative_offline_catalog"
+  ],
+  "artifacts": [
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:dynamodb/table:Table::id-captures",
+      "name": "id-captures",
+      "type": "aws:dynamodb/table:Table",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-dispatcher-role",
+      "name": "capture-dispatcher-role",
+      "type": "aws:iam/role:Role",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-role",
+      "name": "capture-role",
+      "type": "aws:iam/role:Role",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "name": "capture-worker-role",
+      "type": "aws:iam/role:Role",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-dispatch-grant",
+      "name": "capture-dispatch-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-dispatcher-grant",
+      "name": "capture-dispatcher-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-dispatcher-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-extraction-grant",
+      "name": "capture-extraction-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-grant",
+      "name": "capture-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-worker-dispatch-grant",
+      "name": "capture-worker-dispatch-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicy:RolePolicy::capture-worker-grant",
+      "name": "capture-worker-grant",
+      "type": "aws:iam/rolePolicy:RolePolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketLifecycleConfigurationV2:BucketLifecycleConfigurationV2::id-evidence-orphans",
+      "name": "id-evidence-orphans",
+      "type": "aws:s3/bucketLifecycleConfigurationV2:BucketLifecycleConfigurationV2",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketOwnershipControls:BucketOwnershipControls::id-evidence-owner",
+      "name": "id-evidence-owner",
+      "type": "aws:s3/bucketOwnershipControls:BucketOwnershipControls",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketPolicy:BucketPolicy::id-evidence-tls",
+      "name": "id-evidence-tls",
+      "type": "aws:s3/bucketPolicy:BucketPolicy",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock::id-evidence-private",
+      "name": "id-evidence-private",
+      "type": "aws:s3/bucketPublicAccessBlock:BucketPublicAccessBlock",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketServerSideEncryptionConfigurationV2:BucketServerSideEncryptionConfigurationV2::id-evidence-encryption",
+      "name": "id-evidence-encryption",
+      "type": "aws:s3/bucketServerSideEncryptionConfigurationV2:BucketServerSideEncryptionConfigurationV2",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "name": "id-evidence",
+      "type": "aws:s3/bucketV2:BucketV2",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:s3/bucketVersioningV2:BucketVersioningV2::id-evidence-versions",
+      "name": "id-evidence-versions",
+      "type": "aws:s3/bucketVersioningV2:BucketVersioningV2",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:s3/bucketV2:BucketV2::id-evidence",
+      "priority": 20,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/authorizer:Authorizer::capture-jwt",
+      "name": "capture-jwt",
+      "type": "aws:apigatewayv2/authorizer:Authorizer",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:cloudwatch/eventRule:EventRule::capture-sweep",
+      "name": "capture-sweep",
+      "type": "aws:cloudwatch/eventRule:EventRule",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/function:Function::capture",
+      "name": "capture",
+      "type": "aws:lambda/function:Function",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-role",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/function:Function::capture-dispatcher",
+      "name": "capture-dispatcher",
+      "type": "aws:lambda/function:Function",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-dispatcher-role",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/function:Function::capture-worker",
+      "name": "capture-worker",
+      "type": "aws:lambda/function:Function",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:sqs/queue:Queue::capture-validation",
+      "name": "capture-validation",
+      "type": "aws:sqs/queue:Queue",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:sqs/queue:Queue::capture-validation-dlq",
+      "name": "capture-validation-dlq",
+      "type": "aws:sqs/queue:Queue",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 30,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:cloudwatch/eventTarget:EventTarget::capture-sweep-target",
+      "name": "capture-sweep-target",
+      "type": "aws:cloudwatch/eventTarget:EventTarget",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:cloudwatch/eventRule:EventRule::capture-sweep",
+      "priority": 40,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:cloudwatch/metricAlarm:MetricAlarm::capture-dlq-alarm",
+      "name": "capture-dlq-alarm",
+      "type": "aws:cloudwatch/metricAlarm:MetricAlarm",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 40,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/eventSourceMapping:EventSourceMapping::capture-queue-worker",
+      "name": "capture-queue-worker",
+      "type": "aws:lambda/eventSourceMapping:EventSourceMapping",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 40,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/integration:Integration::capture-integration",
+      "name": "capture-integration",
+      "type": "aws:apigatewayv2/integration:Integration",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-0",
+      "name": "capture-route-0",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-1",
+      "name": "capture-route-1",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-2",
+      "name": "capture-route-2",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-3",
+      "name": "capture-route-3",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-4",
+      "name": "capture-route-4",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-5",
+      "name": "capture-route-5",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-6",
+      "name": "capture-route-6",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-7",
+      "name": "capture-route-7",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:apigatewayv2/route:Route::capture-route-8",
+      "name": "capture-route-8",
+      "type": "aws:apigatewayv2/route:Route",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicyAttachment:RolePolicyAttachment::capture-dispatcher-logs",
+      "name": "capture-dispatcher-logs",
+      "type": "aws:iam/rolePolicyAttachment:RolePolicyAttachment",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-dispatcher-role",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicyAttachment:RolePolicyAttachment::capture-logs",
+      "name": "capture-logs",
+      "type": "aws:iam/rolePolicyAttachment:RolePolicyAttachment",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-role",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:iam/rolePolicyAttachment:RolePolicyAttachment::capture-worker-logs",
+      "name": "capture-worker-logs",
+      "type": "aws:iam/rolePolicyAttachment:RolePolicyAttachment",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:iam/role:Role::capture-worker-role",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/permission:Permission::capture-api-invoke",
+      "name": "capture-api-invoke",
+      "type": "aws:lambda/permission:Permission",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:lambda/function:Function::capture",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    },
+    {
+      "key": "urn:pulumi:preview::offline-preview::aws:lambda/permission:Permission::capture-sweep-invoke",
+      "name": "capture-sweep-invoke",
+      "type": "aws:lambda/permission:Permission",
+      "provider": "aws",
+      "owner": "go.appexfission.aws.card-capture",
+      "feature": "card-capture",
+      "parent": "urn:pulumi:preview::offline-preview::aws:lambda/function:Function::capture-dispatcher",
+      "priority": 60,
+      "plannedAction": "declared",
+      "observation": {
+        "status": "unknown",
+        "observedAt": "0001-01-01T00:00:00Z",
+        "reason": "unchecked"
+      }
+    }
+  ]
+}

@@ -1,3 +1,6 @@
 /dist/
 *.test
 .env
+
+/deployment-reports/
+/.cache/infra-composer/
