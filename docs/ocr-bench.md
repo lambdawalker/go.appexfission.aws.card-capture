@@ -121,3 +121,24 @@ Plan inspection checks only resource operation steps, not property names such as
 The input bucket, Lambda, IAM role and log group carry Name (`<project>-<environment>`), Project, Environment, Component, ManagedBy and Description tags. Lambda and IAM roles additionally expose native descriptions. Deployment project/environment are passed from the wizard to Pulumi; direct Pulumi runs fall back to its project and stack environment. Stack outputs expose deploymentIdentity and resourceMetadata, including ownership/purpose of untaggable S3 configuration and IAM policy attachments. Existing physical resource names remain stable while metadata is updated.
 
 State buckets created by this wizard receive the same project/environment identity and a deployment-state component. Existing unrelated tags are preserved and unchanged metadata skips writes. Shared operator-supplied state buckets are not claimed; a matching bootstrap receipt is required, including scope-checked legacy receipt migration. State tagging requires s3:GetBucketTagging and s3:PutBucketTagging. Status/destroy remain read-only with respect to state bucket metadata.
+
+### Feature-scoped deployed artifact reports
+
+The standalone bench produces JSON, Markdown and self-contained HTML reports using the same Infra Composer reporting model/Pulumi adapters as Attestra. This is a **feature** report, not an application aggregate: all managed resources in the dedicated benchmark stack belong to the card-capture repository/feature. The normal host-integrated feature still supplies its own inventory to the application; it does not own the host's identity, API or shared configuration.
+
+Preview and deployment attempts save reports under `.deploy/reports/<environment>/<timestamp>/artifacts.{json,md,html}` and print the HTML path. Deployment attempts are reported even after failure; read-only verification preserves partial observations. Scoped normalized caches live under `~/.infra-composer/<project>/environments/<environment>/reports/`. Cached observations retain original timestamps.
+
+Generate a report for the selected existing stack:
+
+```sh
+./deploy.sh --action report --environment dev
+./deploy.sh --action report --environment dev --refresh-report
+```
+
+Windows uses `deploy.bat` with the same arguments. Report-only exports the selected stack inventory as recorded evidence. `--refresh-report` additionally runs `pulumi refresh --preview-only`, never an apply. Deployment attempts also verify using that read-only path. State reads alone never mean live presence; exact refresh completions establish present/absent, while inaccessible/unsupported resources remain unknown. Warnings and incomplete/failed outcomes are preserved.
+
+The HTML explorer supports hierarchy, search, filters and artifact details. JSON/Markdown describe the same snapshot. Reports include revision, scope, owner, physical/logical identities, planned actions and evidence/configuration timestamps. Only the reporting library's safe output-settings allowlist is copied. Raw exports, event logs, policies, environment variables, image contents and provider diagnostics are not persisted. Private temporary preview/refresh logs are removed.
+
+Wizard-owned bootstrap state buckets are included only with matching account/region/identity receipts and a scoped head-bucket check. Operator-supplied shared state buckets are external dependencies and are not claimed. No application dashboard, DNS/GitHub inventory expansion or cross-feature aggregation is added to this library.
+
+Taggable benchmark resources additionally expose standard `ic:owner`, `ic:feature` and `ic:managed-by` tags for compatibility with host reporting. Untaggable child ownership is assigned only within this dedicated feature stack. The existing `preview.sh` offline full-feature catalog remains separate: its illustrative/mock inventory never proves deployment.

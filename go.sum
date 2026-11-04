@@ -40,6 +40,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/lambdawalker/go.infra.composer v0.0.0-20261101203048-2628bc245bc6 h1:+ZQ3VIJc5E0Gdvh7CaqTd47eoQI0EqKGIapdZRbPgsI=
 github.com/lambdawalker/go.infra.composer v0.0.0-20261101203048-2628bc245bc6/go.mod h1:rUs6Et8eAaaUKYxSBJY6bahA7xlGZn2w5gymh6MBRZQ=
+github.com/lambdawalker/go.infra.composer v0.0.0-20261103224925-d8340809719c h1:YocYaOXIaLKAE9xSC0ciXhPMWz1x5Hpp4C04R1HwDkA=
+github.com/lambdawalker/go.infra.composer v0.0.0-20261103224925-d8340809719c/go.mod h1:rUs6Et8eAaaUKYxSBJY6bahA7xlGZn2w5gymh6MBRZQ=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.7.2 h1:4jaiDzPyXQvSd7D0EjG45355tLlV3VOECpq10pLC+8s=

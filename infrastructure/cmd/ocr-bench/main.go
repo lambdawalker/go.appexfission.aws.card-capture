@@ -26,7 +26,7 @@ func main() {
 		}
 		identity := project + "-" + environment
 		tags := func(purpose string) pulumi.StringMap {
-			return pulumi.StringMap{"Name": pulumi.String(identity), "Project": pulumi.String(project), "Environment": pulumi.String(environment), "ManagedBy": pulumi.String("infra-composer"), "Component": pulumi.String("ocr-bench"), "Purpose": pulumi.String(purpose), "Description": pulumi.String(identity + ": " + purpose)}
+			return pulumi.StringMap{"ic:owner": pulumi.String("github.com/lambdawalker/go.appexfission.aws.card-capture"), "ic:feature": pulumi.String("card-capture"), "ic:managed-by": pulumi.String("infra-composer"), "Name": pulumi.String(identity), "Project": pulumi.String(project), "Environment": pulumi.String(environment), "ManagedBy": pulumi.String("infra-composer"), "Component": pulumi.String("ocr-bench"), "Purpose": pulumi.String(purpose), "Description": pulumi.String(identity + ": " + purpose)}
 		}
 		archive := cfg.Require("archive")
 		if _, e := os.Stat(archive); e != nil {
