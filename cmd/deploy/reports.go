@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,7 +29,7 @@ type featureReport struct {
 
 func newFeatureReport(ctx context.Context, root, dir, stack, private, local string, s Settings, project, operation string) *featureReport {
 	r := &featureReport{dir: dir, stack: stack, run: func(ctx context.Context, dir string, args ...string) ([]byte, error) {
-		c := exec.CommandContext(ctx, args[0], args[1:]...)
+		c := toolCommand(ctx, args...)
 		c.Dir = dir
 		return c.Output()
 	}}

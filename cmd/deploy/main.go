@@ -121,7 +121,7 @@ func secret(label string) (string, error) {
 	return strings.TrimRight(string(b), "\r\n"), e
 }
 func command(ctx context.Context, dir string, args ...string) error {
-	c := exec.CommandContext(ctx, args[0], args[1:]...)
+	c := toolCommand(ctx, args...)
 	c.Dir = dir
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -129,7 +129,7 @@ func command(ctx context.Context, dir string, args ...string) error {
 	return c.Run()
 }
 func output(ctx context.Context, args ...string) ([]byte, error) {
-	c := exec.CommandContext(ctx, args[0], args[1:]...)
+	c := toolCommand(ctx, args...)
 	c.Stderr = os.Stderr
 	return c.Output()
 }
@@ -865,7 +865,7 @@ func run() (runErr error) {
 	return nil
 }
 func outputIn(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	c := exec.CommandContext(ctx, args[0], args[1:]...)
+	c := toolCommand(ctx, args...)
 	c.Dir = dir
 	c.Stderr = os.Stderr
 	return c.Output()
