@@ -736,11 +736,22 @@ func run() error {
 		return command(ctx, dir, "pulumi", "stack", "output", "--stack", stack, "--json")
 	}
 	if *action == "destroy" {
-		if *ci || prompt("Type the complete stack name to destroy (no timeout)", "") != stack {
-			return errors.New("destroy cancelled; protected bucket must be emptied/unprotected explicitly")
+		if *ci {
+			return errors.New("interactive teardown confirmation required")
+		}
+		heading("Destroy this stack? [Y/n]")
+		detail("Stack", stack)
+		note("This removes stack resources; protected resources can still block deletion.")
+		yes, err := timedChoice(true)
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return errors.New("destroy cancelled")
 		}
 		return command(ctx, dir, "pulumi", "destroy", "--stack", stack, "--yes")
 	}
+
 	if *action != "preview" && *action != "deploy" && *action != "setup" {
 		return errors.New("unknown action")
 	}
@@ -766,19 +777,23 @@ func run() error {
 	if *action == "preview" {
 		return nil
 	}
-	// Do not allow automatic approval of deletions/replacements.
 	planBytes, e := os.ReadFile(plan)
 	if e != nil {
 		return e
 	}
-	if regexp.MustCompile(`"[^"\n]*(delete|replace)[^"\n]*"`).Match(planBytes) {
+	destructive, e := destructivePlan(planBytes)
+	if e != nil {
+		return e
+	}
+	if destructive {
 		if *ci {
 			return errors.New("destructive plan requires separate operator review")
 		}
-		if prompt("Destructive plan: type stack name to approve", "") != stack {
-			return errors.New("cancelled")
-		}
+		heading("This plan includes deletion or replacement")
+		detail("Stack", stack)
+		note("The following default-yes countdown approves these previewed operations.")
 	}
+
 	if *ci {
 		if !*approve {
 			return errors.New("--approve required for noninteractive deploy")
