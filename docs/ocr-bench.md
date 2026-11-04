@@ -18,17 +18,23 @@ Run from any directory through the root launcher. Windows uses `deploy.bat` with
 
 ```sh
 ./deploy.sh --action setup --environment dev --profile YOUR_SSO_PROFILE \
-  --region us-east-2 --init-stack
+  --region us-east-2
 ./deploy.sh --action preview --environment dev
 ./deploy.sh --action deploy --environment dev
 ./deploy.sh --action status --environment dev
 ```
 
-Only pass `--init-stack` when intentionally creating a NEW stack. Failed selection never creates a stack. Stack names are `ocr-<environment>` under project `card-capture-ocr-bench`. The reserved name `prod` is rejected. CI still requires explicit --account and --backend and never auto-creates a state bucket. No shared/admin deployment is involved.
+On the first interactive run, **project name is the first question**, defaulting to `card-capture-ocr-bench`. The repository remembers it in `.deploy/project.json`; later runs reuse it, the last environment and saved flags. Use `--project NAME` for the first CI run. A conflicting saved project or a name owned by another checkout fails rather than silently sharing deployment ownership. Build-only invocations need no project setup.
 
-Environment is selected first. Nonsecret answers are saved under the OS user configuration directory `attestra/card-capture-ocr-bench/<environment>/settings.json`; flags override saved settings. `--reconfigure` asks again. Profile credentials remain in AWS's own SSO cache. The account number is discovered from STS rather than requested. An explicit --account or saved account remains an account mismatch guard; use --reconfigure to deliberately switch accounts. The program validates STS account/role, selected region and state-bucket owner/region/versioning/encryption/public blocking before Pulumi operations; expired interactive authentication invokes SSO login. CI never logs into SSO.
+Nonsecret deployment records are centralized at `~/.infra-composer/<project>/environments/<environment>/`: settings, flags, state-bucket receipts, stack initialization receipts, operation locks and successful outputs. The repository's ignored `.deploy/` holds project identity, last environment, per-environment configuration/flag snapshots and encrypted vaults. Flags such as Lambda memory are reused unless explicitly overridden. Flags override saved settings; `--reconfigure` asks again for target settings. Do not commit or upload `.deploy`.
 
-The local vault uses versioned AES-256-GCM with PBKDF2-SHA256 (600,000 iterations), random salt/nonce and environment/path binding. Enter its unlock passphrase without echo and confirm on creation. Enter the existing Pulumi passphrase for an existing stack; never substitute a new one. Unlock is once per run. A corrupt vault/wrong passphrase fails without overwriting it. Back up the complete private environment directory and remember both passphrases. Moving a vault to a different path requires deliberate migration, not renaming. Alternatively provide `PULUMI_CONFIG_PASSPHRASE` through a protected process environment; this bypasses local persistence.
+After authenticated S3 backend login, the wizard lists the project's remote Pulumi stacks. It selects an existing `ocr-<environment>` stack or initializes a genuinely absent stack automatically for setup/preview/deploy. `--init-stack` remains accepted for compatibility but is unnecessary. Listing/access failures never initialize a stack. If a receipt says a stack existed but it is now missing, recover state instead of silently recreating it. Status/destroy never create a stack. Initialization receipts are written only after successful init/select, and target-scope changes are rejected. Remote state remains authoritative.
+
+The default project imports previous nonsecret settings from the former OS configuration directory when central settings are absent. Its existing vault is unlocked once and re-encrypted into `.deploy` with a fresh nonce/path binding, keeping the same Pulumi passphrase and preserving the source for recovery. Other project names start independently. A wrong passphrase/corrupt vault never overwrites either copy.
+
+Account discovery, timed confirmation, SSO, saved account guards and state bucket validation work as before. CI requires explicit project/account/backend/environment inputs, uses OIDC, and never logs into SSO or implicitly bootstraps a state bucket. The reserved environment name `prod` is rejected.
+
+The local vault uses versioned AES-256-GCM with PBKDF2-SHA256 (600,000 iterations), random salt/nonce and environment/path binding. Enter its unlock passphrase without echo and confirm on creation. Enter the existing Pulumi passphrase for an existing stack; never substitute a new one. Unlock is once per run. A corrupt vault/wrong passphrase fails without overwriting it. Back up both the central project records and repository .deploy directory and remember both passphrases. Moving a vault to a different path requires deliberate migration, not renaming. Alternatively provide `PULUMI_CONFIG_PASSPHRASE` through a protected process environment; this bypasses local persistence.
 
 S3 encryption, Pulumi configuration-secret encryption and the local vault protect different things. Pulumi state can contain sensitive values; restrict state access with IAM. Encrypted authoritative stack configuration is refreshed from the backend before local nonsecret updates. No keys or application secrets are generated by this stack.
 
@@ -72,7 +78,7 @@ Reconcile settings and deliver the unlocked Pulumi secret:
 
 Requires authenticated `gh` and environment administration permission. This reads the existing environment, preserves protection rules and unrelated settings, reconciles only changed benchmark variables, and explicitly delivers the Pulumi passphrase via stdin. Secret values cannot be read back; setup reports delivery, not value verification. `DEPLOY_CONFIG_SHA256` is written last and never replaces authoritative field checks. Re-running setup intentionally re-delivers the secret; it does not assert a cache hit for secret contents.
 
-If administration is unavailable, setup fails as incomplete. In repository Settings → Environments → your environment, manually set variables `BENCH_ACCOUNT`, `BENCH_REGION`, `BENCH_BACKEND`, `BENCH_ENVIRONMENT`, `BENCH_ROLE_ARN`; set secret `PULUMI_CONFIG_PASSPHRASE`. Preserve reviewer/branch rules. Initialize the stack locally first. Verify the role's actual trust before dispatch; the tool does not provision or attest OIDC trust automatically.
+If administration is unavailable, setup fails as incomplete. In repository Settings → Environments → your environment, manually set variables `BENCH_PROJECT`, `BENCH_ACCOUNT`, `BENCH_REGION`, `BENCH_BACKEND`, `BENCH_ENVIRONMENT`, `BENCH_ROLE_ARN`; set secret `PULUMI_CONFIG_PASSPHRASE`. Preserve reviewer/branch rules. The workflow selects or initializes the stack using the same verified remote listing as local runs. Verify the role's actual trust before dispatch; the tool does not provision or attest OIDC trust automatically.
 
 Workflow: https://github.com/lambdawalker/go.appexfission.aws.card-capture/actions/workflows/ocr-bench-deploy.yml
 Environments: https://github.com/lambdawalker/go.appexfission.aws.card-capture/settings/environments
@@ -101,3 +107,5 @@ No live deployment or workflow dispatch is required for these checks.
 ### Console presentation
 
 The wizard groups account details, state, build, preview and apply into labeled steps. On terminals, the countdown updates one line in place and clears it on completion/cancellation. Redirected logs print a single default/timeout message instead of progress frames. Color is optional, respects NO_COLOR and TERM=dumb, and falls back to plain text on older Windows consoles; the in-place countdown uses carriage returns rather than ANSI cursor commands.
+
+Project records and `.deploy` are local operator data, not a replacement for Pulumi state backups. Removing either is not permission to recreate missing infrastructure. For a moved checkout, deliberately review/update the central project root binding; do not rename encrypted vaults because they are bound to their paths.

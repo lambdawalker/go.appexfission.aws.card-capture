@@ -14,7 +14,7 @@ import (
 
 // setupGitHub reconciles only benchmark variables and explicitly delivers the unlocked secret.
 // The deployment role/provider are supplied by the account operator, never broadened here.
-func setupGitHub(ctx context.Context, s Settings, role, repository, environment string) error {
+func setupGitHub(ctx context.Context, s Settings, role, repository, environment, project string) error {
 	if !strings.HasPrefix(role, "arn:aws:iam::"+s.Account+":role/") {
 		return fmt.Errorf("--github-role must reference a deployment role in target account; see OIDC setup in docs/ocr-bench.md")
 	}
@@ -32,7 +32,7 @@ func setupGitHub(ctx context.Context, s Settings, role, repository, environment 
 	if _, e := output(ctx, "gh", "api", base); e != nil {
 		return fmt.Errorf("environment unavailable: create/verify it in repository Settings > Environments; setup incomplete: %w", e)
 	}
-	desired := map[string]string{"BENCH_ACCOUNT": s.Account, "BENCH_REGION": s.Region, "BENCH_BACKEND": s.Backend, "BENCH_ENVIRONMENT": s.Environment, "BENCH_ROLE_ARN": role}
+	desired := map[string]string{"BENCH_PROJECT": project, "BENCH_ACCOUNT": s.Account, "BENCH_REGION": s.Region, "BENCH_BACKEND": s.Backend, "BENCH_ENVIRONMENT": s.Environment, "BENCH_ROLE_ARN": role}
 	b, _ := json.Marshal(desired)
 	sum := sha256.Sum256(b)
 	marker := hex.EncodeToString(sum[:])

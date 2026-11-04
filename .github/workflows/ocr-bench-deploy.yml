@@ -28,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     env:
+      PROJECT: ${{ vars.BENCH_PROJECT }}
       TARGET: ${{ inputs.target }}
       ACTION: ${{ inputs.action }}
       MEMORY: ${{ inputs.memory }}
@@ -45,6 +46,7 @@ jobs:
       - name: Validate explicit inputs
         shell: bash
         run: |
+          test -n "$PROJECT"
           test "$TARGET" = "$BENCH_ENVIRONMENT"
           test "$TARGET" != prod
           test -n "$BENCH_ACCOUNT" && test -n "$BENCH_REGION" && test -n "$BENCH_BACKEND" && test -n "$ROLE" && test -n "$PULUMI_CONFIG_PASSPHRASE"
@@ -59,4 +61,4 @@ jobs:
       - name: Run shared deployment program
         shell: bash
         run: |
-          ./deploy.sh --non-interactive --approve --environment "$TARGET" --action "$ACTION" --account "$BENCH_ACCOUNT" --region "$BENCH_REGION" --backend "$BENCH_BACKEND" --memory "$MEMORY"
+          ./deploy.sh --project "$PROJECT" --non-interactive --approve --environment "$TARGET" --action "$ACTION" --account "$BENCH_ACCOUNT" --region "$BENCH_REGION" --backend "$BENCH_BACKEND" --memory "$MEMORY"
