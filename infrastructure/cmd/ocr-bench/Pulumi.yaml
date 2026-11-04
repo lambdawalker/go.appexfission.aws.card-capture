@@ -1,0 +1,3 @@
+name: card-capture-ocr-bench
+runtime: go
+description: Isolated private OCR latency benchmark
