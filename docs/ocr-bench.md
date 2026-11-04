@@ -40,7 +40,7 @@ S3 encryption, Pulumi configuration-secret encryption and the local vault protec
 
 Build happens before preview/apply. Artifact cache keys include canonical source/module content (including uncommitted edits), toolchain and packaging recipe; ZIP hashes are verified before reuse. Use `--force-rebuild` to bypass it, or remove only `dist/ocr-bench` while no build runs. Pulumi still previews remote changes; a local cache never skips infrastructure reconciliation.
 
-Deploy first produces a saved plan. Interactive apply shows the exact target and a five-second default-to-proceed countdown; Enter/yes proceeds, no/Escape/Ctrl+C cancels. Closed input/EOF cancels. The account and S3 questions use the same timer/input handling. Destructive plans require a separate explicit stack-name confirmation with no timeout. CI requires `--non-interactive --approve` and rejects destructive plans. Preview/setup/status/build never become apply.
+Deploy first produces a saved plan. Interactive apply shows the exact target and a five-second default-to-proceed countdown; Enter/yes proceeds, no/Escape/Ctrl+C cancels. Closed input/EOF cancels. The account and S3 questions use the same timer/input handling. Plans containing actual delete/replacement operations display a warning and use the same five-second default-yes apply confirmation, without an extra typed stack-name question. CI requires `--non-interactive --approve` and rejects destructive plans. Preview/setup/status/build never become apply.
 
 ## Run photos from the console
 
@@ -89,7 +89,7 @@ Re-run the same environment/action after interruption; Pulumi reconciles partial
 
 Status reads stack outputs. For live acceptance, upload a known pair, confirm successful samples, inspect stage timings/failure counts and confirm cleanup. This operation incurs real inference charges and is operator initiated, not part of automated tests.
 
-To retire the stack: explicitly delete any remaining inputs and remove the bucket's Pulumi protection after reviewing the exact target. `--action destroy` then requires typing the full stack name and has no timed approval. It does not delete the shared state bucket, remove state, automatically empty evidence, or steal locks. Preserve the backend/vault backup until recovery is no longer needed.
+To retire the stack: explicitly delete any remaining inputs and remove the bucket's Pulumi protection after reviewing the exact target. `--action destroy` then displays the target stack and a five-second default-yes confirmation. It does not delete the shared state bucket, remove state, automatically empty evidence, or steal locks. Preserve the backend/vault backup until recovery is no longer needed.
 
 ## Offline verification
 
@@ -113,3 +113,5 @@ Project records and `.deploy` are local operator data, not a replacement for Pul
 ### Default launcher action
 
 A plain interactive `deploy.bat` or `./deploy.sh` invocation defaults to **deploy**: it builds, previews, then offers the five-second apply confirmation. Use `--action preview` to stop after planning. Noninteractive runs without an action continue to default to preview; applying in CI still requires explicit `--action deploy --approve`. Explicit status/build/setup/preview actions never escalate to apply.
+
+Plan inspection checks only resource operation steps, not property names such as `deleteBeforeReplace`. Approval questions default to yes with the in-place five-second countdown; EOF/Escape/Ctrl+C cancel. Teardown still requires explicitly choosing `--action destroy`; the ordinary deploy path never selects it. Secret entry still requires actual user input.
