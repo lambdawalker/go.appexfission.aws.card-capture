@@ -39,8 +39,8 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	if len(os.Args) > 1 && os.Args[1] == "--confirm-child" {
-		os.Exit(readApproval())
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "--confirm-child") {
+		os.Exit(readApproval(os.Args[1] != "--confirm-child-no"))
 	}
 
 	if e := run(); e != nil {
@@ -50,7 +50,7 @@ func main() {
 }
 
 // The child owns terminal mode and input; the parent can cancel it without leaked readers.
-func readApproval() int {
+func readApproval(defaultYes bool) int {
 	var value byte
 	if runtime.GOOS == "windows" {
 		c := exec.Command("powershell", "-NoProfile", "-Command", `if ([Console]::IsInputRedirected) { $v=[Console]::Read(); if($v -lt 0){exit 2}; [Console]::Write([char]$v) } else { [Console]::Write([Console]::ReadKey($true).KeyChar) }`)
@@ -82,6 +82,12 @@ func readApproval() int {
 			return 2
 		}
 		value = one[0]
+	}
+	if !defaultYes && (value == '\n' || value == '\r') {
+		return 3
+	}
+	if value == 'n' || value == 'N' {
+		return 3
 	}
 	if value == 'y' || value == 'Y' || value == '\n' || value == '\r' {
 		return 0
@@ -211,6 +217,20 @@ func vault(path string) (string, error) {
 	return pulumiPass, atomicWrite(path, b)
 }
 func confirm() error {
+	fmt.Println("Deploy the previewed changes? [Y/n]")
+	yes, err := timedChoice(true)
+	if err != nil {
+		return err
+	}
+	if !yes {
+		return errors.New("deployment cancelled")
+	}
+	return nil
+}
+
+var countdownStep = time.Second
+
+func timedChoice(defaultYes bool) (bool, error) {
 	if runtime.GOOS != "windows" {
 		probe := exec.Command("stty", "-g")
 		probe.Stdin = os.Stdin
@@ -223,15 +243,19 @@ func confirm() error {
 		}
 	}
 
-	fmt.Println("Deploy the previewed changes? [Y/n] Continuing in 5 seconds; press n or Ctrl+C to cancel.")
+	fmt.Printf("Default %s in 5 seconds; y/n answers immediately; Escape or Ctrl+C cancels.\n", map[bool]string{true: "yes", false: "no"}[defaultYes])
 	exe, e := os.Executable()
 	if e != nil {
-		return e
+		return false, e
 	}
-	c := exec.Command(exe, "--confirm-child")
+	childArg := "--confirm-child"
+	if !defaultYes {
+		childArg = "--confirm-child-no"
+	}
+	c := exec.Command(exe, childArg)
 	c.Stdin = os.Stdin
 	if e = c.Start(); e != nil {
-		return e
+		return false, e
 	}
 	done := make(chan error, 1)
 	go func() { done <- c.Wait() }()
@@ -248,18 +272,21 @@ func confirm() error {
 		select {
 		case e := <-done:
 			if e != nil {
-				return errors.New("deployment cancelled")
+				if exit, ok := e.(*exec.ExitError); ok && exit.ExitCode() == 3 {
+					return false, nil
+				}
+				return false, errors.New("input closed or cancelled")
 			}
-			return nil
+			return true, nil
 		case <-signals:
-			return errors.New("deployment cancelled")
-		case <-time.After(time.Second):
+			return false, errors.New("deployment cancelled")
+		case <-time.After(countdownStep):
 		}
 	}
 	_ = c.Process.Kill()
 	e = <-done
 	_ = e
-	return nil
+	return defaultYes, nil
 }
 func build(ctx context.Context, root string, force bool) (string, error) {
 	out := filepath.Join(root, "dist", "ocr-bench")
@@ -383,6 +410,10 @@ func run() error {
 	if e := fs.Parse(os.Args[1:]); e != nil {
 		return e
 	}
+	allowedActions := map[string]bool{"setup": true, "build": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true}
+	if !allowedActions[*action] {
+		return errors.New("unknown action")
+	}
 	if *action == "build" {
 		root, e := os.Getwd()
 		if e != nil {
@@ -459,14 +490,24 @@ func run() error {
 	for _, v := range []struct {
 		p               *string
 		old, label, def string
-	}{{region, saved.Region, "region", "us-east-2"}, {account, saved.Account, "account", ""}, {backend, saved.Backend, "backend", ""}} {
+	}{{region, saved.Region, "region", "us-east-2"}} {
 		if e = choose(v.p, v.old, v.label, v.def); e != nil {
 			return e
 		}
 	}
-	if !regexp.MustCompile(`^\d{12}$`).MatchString(*account) || !regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d$`).MatchString(*region) || !regexp.MustCompile(`^s3://[a-z0-9.-]+/[^?\s]+$`).MatchString(*backend) {
-		return errors.New("account, region and dedicated S3 backend prefix required")
+	if !regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-\d$`).MatchString(*region) {
+		return errors.New("valid region required")
 	}
+	if *ci && (*account == "" || *backend == "") {
+		return errors.New("--account and --backend required in CI")
+	}
+	if *account == "" && !*reconfigure {
+		*account = saved.Account
+	}
+	if *backend == "" && !*reconfigure {
+		*backend = saved.Backend
+	}
+
 	os.Setenv("AWS_REGION", *region)
 	os.Setenv("AWS_DEFAULT_REGION", *region)
 	for _, tool := range []string{"aws", "pulumi", "go"} {
@@ -493,10 +534,52 @@ func run() error {
 		return e
 	}
 	var who struct{ Account, Arn string }
-	if json.Unmarshal(identity, &who) != nil || who.Account != *account {
-		return errors.New("AWS account differs from expected target")
+	if json.Unmarshal(identity, &who) != nil || !regexp.MustCompile(`^\d{12}$`).MatchString(who.Account) {
+		return errors.New("invalid AWS identity")
 	}
-	fmt.Printf("Account %s • role %s • region %s • environment %s • stack ocr-%s • backend %s\n", *account, who.Arn, *region, *env, *env, *backend)
+	if *account != "" && *account != who.Account {
+		return errors.New("AWS account differs from saved/explicit target; use --reconfigure to deliberately change it")
+	}
+	*account = who.Account
+	fmt.Printf("AWS account: %s\nSigned-in identity: %s\nRegion: %s\nEnvironment: %s\nStack: ocr-%s\n", *account, who.Arn, *region, *env, *env)
+	if !*ci {
+		fmt.Println("Proceed with this AWS account? [Y/n]")
+		yes, err := timedChoice(true)
+		if err != nil {
+			return err
+		}
+		if !yes {
+			return errors.New("account selection cancelled")
+		}
+	}
+	if *backend == "" {
+		if *ci {
+			return errors.New("--backend required in CI")
+		}
+		fmt.Println("Do you have an S3 bucket for deployment state? [y/N] No creates a private, encrypted, versioned bucket automatically.")
+		existing, err := timedChoice(false)
+		if err != nil {
+			return err
+		}
+		if existing {
+			name := prompt("S3 bucket name", "")
+			*backend = "s3://" + name + "/card-capture-ocr-bench"
+		} else {
+			if *action == "status" || *action == "destroy" {
+				return errors.New("select an existing state bucket for status/destroy")
+			}
+			name, err := bootstrapBucket(ctx, private, *account, *region)
+			if err != nil {
+				return err
+			}
+			*backend = "s3://" + name + "/card-capture-ocr-bench"
+		}
+	}
+	if !regexp.MustCompile(`^s3://[a-z0-9.-]+/[^?\s]+$`).MatchString(*backend) {
+		return errors.New("valid S3 state location required")
+	}
+	fmt.Println("Deployment state:", *backend)
+
 	// Verify the existing state bucket before using it. Bootstrap is deliberately separate.
 	bucket := strings.Split(strings.TrimPrefix(*backend, "s3://"), "/")[0]
 	if e = command(ctx, root, "aws", "s3api", "head-bucket", "--bucket", bucket, "--expected-bucket-owner", *account); e != nil {
