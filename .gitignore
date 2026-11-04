@@ -4,3 +4,7 @@
 
 /deployment-reports/
 /.cache/infra-composer/
+
+# Local benchmark state/config/reports
+infrastructure/cmd/ocr-bench/Pulumi.*.yaml
+ocr-bench-report*.json

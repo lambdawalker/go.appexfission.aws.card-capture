@@ -25,3 +25,7 @@ Flags: `-environment preview`, `-config nonsecret.json` (JSON string map), `-out
 To read an explicitly selected cached app report use `-cache FILE -project PROJECT -account ACCOUNT -backend BACKEND` with the matching environment; optional `-application`, `-region`, `-stack` further constrain identity. Unique exact feature/type/logical-name matches preserve physical identity and original evidence timestamps. Unknown and ambiguous evidence stays unknown. Cache does not perform a live check. The full selected source scope appears in the report; account identity is caller supplied.
 
 Checked-in `docs/artifacts/` samples are deterministic illustrative defaults, with unknown presence and no deployed IDs.
+
+## Isolated OCR speed bench
+
+See [console benchmark and deployment guide](docs/ocr-bench.md) for private, standalone OCR testing from front/back JPEGs, without Android or onboarding services.

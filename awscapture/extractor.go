@@ -23,7 +23,11 @@ const ExtractionModel = "google.gemma-4-e2b"
 var errExtraction = errors.New("extraction_unavailable")
 
 // BedrockExtractor uses the Lambda role, not API keys or client-supplied endpoints.
-type BedrockExtractor struct{ Transport *Transport }
+type BedrockExtractor struct {
+	Transport *Transport
+	// Observe receives stage durations only, never document contents. Calls are synchronous.
+	Observe func(stage string, elapsedMS int64)
+}
 
 func (x BedrockExtractor) Extract(ctx context.Context, images []capture.CardImage) (capture.CardData, error) {
 	if len(images) != 2 {
@@ -58,6 +62,9 @@ func (x BedrockExtractor) Extract(ctx context.Context, images []capture.CardImag
 	}
 	target := "https://bedrock-mantle." + transport.Config.Region + ".api.aws/openai/v1/chat/completions"
 	requestStarted := time.Now()
+	if x.Observe != nil {
+		x.Observe("prepare", requestStarted.Sub(prepStarted).Milliseconds())
+	}
 	slog.Info("capture.inference_prepared", "elapsed_ms", requestStarted.Sub(prepStarted).Milliseconds())
 	r, e := transport.request(bounded, "bedrock-mantle", http.MethodPost, target, body, map[string]string{"Content-Type": "application/json"})
 	if e != nil {
@@ -73,6 +80,9 @@ func (x BedrockExtractor) Extract(ctx context.Context, images []capture.CardImag
 	defer clear(response)
 	if e != nil || len(response) > 65536 {
 		return capture.CardData{}, errExtraction
+	}
+	if x.Observe != nil {
+		x.Observe("inference", time.Since(requestStarted).Milliseconds())
 	}
 	var out struct {
 		Choices []struct {

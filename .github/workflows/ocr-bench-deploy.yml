@@ -1,0 +1,62 @@
+name: Deploy OCR benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Protected benchmark GitHub environment (never prod)
+        required: true
+        default: ocr-bench-dev
+      target:
+        description: Isolated stack environment
+        required: true
+        default: dev
+      action:
+        type: choice
+        options: [preview, deploy, status]
+        default: preview
+      memory:
+        description: Lambda memory MB
+        default: '1024'
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: ocr-bench-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      TARGET: ${{ inputs.target }}
+      ACTION: ${{ inputs.action }}
+      MEMORY: ${{ inputs.memory }}
+      BENCH_ACCOUNT: ${{ vars.BENCH_ACCOUNT }}
+      BENCH_REGION: ${{ vars.BENCH_REGION }}
+      BENCH_BACKEND: ${{ vars.BENCH_BACKEND }}
+      BENCH_ENVIRONMENT: ${{ vars.BENCH_ENVIRONMENT }}
+      ROLE: ${{ vars.BENCH_ROLE_ARN }}
+      PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.27.3
+      - name: Validate explicit inputs
+        shell: bash
+        run: |
+          test "$TARGET" = "$BENCH_ENVIRONMENT"
+          test "$TARGET" != prod
+          test -n "$BENCH_ACCOUNT" && test -n "$BENCH_REGION" && test -n "$BENCH_BACKEND" && test -n "$ROLE" && test -n "$PULUMI_CONFIG_PASSPHRASE"
+          [[ "$ACTION" =~ ^(preview|deploy|status)$ ]]
+          [[ "$MEMORY" =~ ^[0-9]+$ ]]
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.BENCH_ROLE_ARN }}
+          aws-region: ${{ vars.BENCH_REGION }}
+          allowed-account-ids: ${{ vars.BENCH_ACCOUNT }}
+      - uses: pulumi/actions@v6
+      - name: Run shared deployment program
+        shell: bash
+        run: |
+          ./deploy.sh --non-interactive --approve --environment "$TARGET" --action "$ACTION" --account "$BENCH_ACCOUNT" --region "$BENCH_REGION" --backend "$BENCH_BACKEND" --memory "$MEMORY"

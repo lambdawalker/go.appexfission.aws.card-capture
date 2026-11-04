@@ -20,3 +20,5 @@ jobs:
       - run: go vet ./...
         working-directory: infrastructure
       - run: ./scripts/build.sh
+      - run: go run ./cmd/deploy --action build
+      - run: GOOS=windows GOARCH=amd64 go build -o /tmp/ocr-deploy.exe ./cmd/deploy
