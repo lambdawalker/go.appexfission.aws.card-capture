@@ -97,3 +97,7 @@ go -C infrastructure vet ./...
 ```
 
 No live deployment or workflow dispatch is required for these checks.
+
+### Console presentation
+
+The wizard groups account details, state, build, preview and apply into labeled steps. On terminals, the countdown updates one line in place and clears it on completion/cancellation. Redirected logs print a single default/timeout message instead of progress frames. Color is optional, respects NO_COLOR and TERM=dumb, and falls back to plain text on older Windows consoles; the in-place countdown uses carriage returns rather than ANSI cursor commands.

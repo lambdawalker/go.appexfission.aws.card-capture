@@ -44,7 +44,7 @@ func main() {
 	}
 
 	if e := run(); e != nil {
-		fmt.Fprintln(os.Stderr, e)
+		fmt.Fprintln(os.Stderr, "\n  "+color("Stopped", "1;31")+"  "+e.Error())
 		os.Exit(1)
 	}
 }
@@ -65,7 +65,7 @@ func readApproval(defaultYes bool) int {
 		state.Stdin = os.Stdin
 		old, e := state.Output()
 		if e == nil {
-			raw := exec.Command("stty", "-icanon", "min", "1", "time", "0")
+			raw := exec.Command("stty", "-echo", "-icanon", "min", "1", "time", "0")
 			raw.Stdin = os.Stdin
 			if raw.Run() != nil {
 				return 2
@@ -96,7 +96,7 @@ func readApproval(defaultYes bool) int {
 }
 
 func prompt(label, def string) string {
-	fmt.Printf("%s [%s]: ", label, def)
+	fmt.Printf("  %s %s: ", color(label, "1"), color("["+def+"]", "2"))
 	s, e := input.ReadString('\n')
 	if e != nil {
 		panic("input closed; cancelled")
@@ -217,7 +217,7 @@ func vault(path string) (string, error) {
 	return pulumiPass, atomicWrite(path, b)
 }
 func confirm() error {
-	fmt.Println("Deploy the previewed changes? [Y/n]")
+	heading("Deploy the previewed changes? [Y/n]")
 	yes, err := timedChoice(true)
 	if err != nil {
 		return err
@@ -243,7 +243,8 @@ func timedChoice(defaultYes bool) (bool, error) {
 		}
 	}
 
-	fmt.Printf("Default %s in 5 seconds; y/n answers immediately; Escape or Ctrl+C cancels.\n", map[bool]string{true: "yes", false: "no"}[defaultYes])
+	terminal := interactiveOutput()
+	defer finishCountdown(os.Stdout, terminal)
 	exe, e := os.Executable()
 	if e != nil {
 		return false, e
@@ -268,7 +269,7 @@ func timedChoice(defaultYes bool) (bool, error) {
 	signal.Notify(signals, os.Interrupt)
 	defer signal.Stop(signals)
 	for i := 5; i > 0; i-- {
-		fmt.Printf("%d...\n", i)
+		writeCountdown(os.Stdout, i, defaultYes, terminal)
 		select {
 		case e := <-done:
 			if e != nil {
@@ -336,7 +337,7 @@ func build(ctx context.Context, root string, force bool) (string, error) {
 	if b, e := os.ReadFile(archive); e == nil && !force {
 		sum := sha256.Sum256(b)
 		if old.Input == fingerprint && old.Artifact == hex.EncodeToString(sum[:]) {
-			fmt.Println("Reusing verified OCR Lambda archive")
+			note("Build: reusing verified OCR Lambda archive")
 			return archive, nil
 		}
 	}
@@ -414,6 +415,7 @@ func run() error {
 	if !allowedActions[*action] {
 		return errors.New("unknown action")
 	}
+	banner(*action, *env)
 	if *action == "build" {
 		root, e := os.Getwd()
 		if e != nil {
@@ -469,7 +471,7 @@ func run() error {
 		}
 		if !*ci && prior != "" && !*reconfigure {
 			*v = prior
-			fmt.Println(label + ": saved configuration")
+			note(label + ": using saved setting")
 			return nil
 		}
 		if *ci {
@@ -541,9 +543,15 @@ func run() error {
 		return errors.New("AWS account differs from saved/explicit target; use --reconfigure to deliberately change it")
 	}
 	*account = who.Account
-	fmt.Printf("AWS account: %s\nSigned-in identity: %s\nRegion: %s\nEnvironment: %s\nStack: ocr-%s\n", *account, who.Arn, *region, *env, *env)
+	heading("AWS account")
+	detail("Account", *account)
+	detail("Identity", who.Arn)
+	detail("Region", *region)
+	detail("Environment", *env)
+	detail("Stack", "ocr-"+*env)
+
 	if !*ci {
-		fmt.Println("Proceed with this AWS account? [Y/n]")
+		heading("Proceed with this AWS account? [Y/n]")
 		yes, err := timedChoice(true)
 		if err != nil {
 			return err
@@ -556,7 +564,8 @@ func run() error {
 		if *ci {
 			return errors.New("--backend required in CI")
 		}
-		fmt.Println("Do you have an S3 bucket for deployment state? [y/N] No creates a private, encrypted, versioned bucket automatically.")
+		heading("Do you have an S3 bucket for deployment state? [y/N]")
+		note("No: create a private, encrypted, versioned bucket automatically.")
 		existing, err := timedChoice(false)
 		if err != nil {
 			return err
@@ -578,7 +587,8 @@ func run() error {
 	if !regexp.MustCompile(`^s3://[a-z0-9.-]+/[^?\s]+$`).MatchString(*backend) {
 		return errors.New("valid S3 state location required")
 	}
-	fmt.Println("Deployment state:", *backend)
+	heading("Deployment state")
+	detail("S3 location", *backend)
 
 	// Verify the existing state bucket before using it. Bootstrap is deliberately separate.
 	bucket := strings.Split(strings.TrimPrefix(*backend, "s3://"), "/")[0]
@@ -659,6 +669,7 @@ func run() error {
 	if *action != "preview" && *action != "deploy" && *action != "setup" {
 		return errors.New("unknown action")
 	}
+	heading("Build OCR Lambda")
 	archive, e := build(ctx, root, *force)
 	if e != nil {
 		return e
@@ -673,6 +684,7 @@ func run() error {
 	}
 	plan := filepath.Join(private, "plan.json")
 	defer os.Remove(plan)
+	heading("Preview changes")
 	if e = command(ctx, dir, "pulumi", "preview", "--stack", stack, "--save-plan", plan, "--non-interactive"); e != nil {
 		return e
 	}
@@ -699,6 +711,7 @@ func run() error {
 	} else if e = confirm(); e != nil {
 		return e
 	}
+	heading("Apply previewed changes")
 	if e = command(ctx, dir, "pulumi", "up", "--stack", stack, "--plan", plan, "--yes", "--non-interactive"); e != nil {
 		return e
 	}
