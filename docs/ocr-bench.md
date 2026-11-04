@@ -115,3 +115,9 @@ Project records and `.deploy` are local operator data, not a replacement for Pul
 A plain interactive `deploy.bat` or `./deploy.sh` invocation defaults to **deploy**: it builds, previews, then offers the five-second apply confirmation. Use `--action preview` to stop after planning. Noninteractive runs without an action continue to default to preview; applying in CI still requires explicit `--action deploy --approve`. Explicit status/build/setup/preview actions never escalate to apply.
 
 Plan inspection checks only resource operation steps, not property names such as `deleteBeforeReplace`. Approval questions default to yes with the in-place five-second countdown; EOF/Escape/Ctrl+C cancel. Teardown still requires explicitly choosing `--action destroy`; the ordinary deploy path never selects it. Secret entry still requires actual user input.
+
+### AWS console ownership metadata
+
+The input bucket, Lambda, IAM role and log group carry Name (`<project>-<environment>`), Project, Environment, Component, ManagedBy and Description tags. Lambda and IAM roles additionally expose native descriptions. Deployment project/environment are passed from the wizard to Pulumi; direct Pulumi runs fall back to its project and stack environment. Stack outputs expose deploymentIdentity and resourceMetadata, including ownership/purpose of untaggable S3 configuration and IAM policy attachments. Existing physical resource names remain stable while metadata is updated.
+
+State buckets created by this wizard receive the same project/environment identity and a deployment-state component. Existing unrelated tags are preserved and unchanged metadata skips writes. Shared operator-supplied state buckets are not claimed; a matching bootstrap receipt is required, including scope-checked legacy receipt migration. State tagging requires s3:GetBucketTagging and s3:PutBucketTagging. Status/destroy remain read-only with respect to state bucket metadata.

@@ -684,6 +684,29 @@ func run() error {
 			}
 		}
 	}
+	// Recover a legacy bootstrap receipt only when it matches the verified target.
+	if _, err := os.Stat(filepath.Join(private, "state-bucket.json")); os.IsNotExist(err) && projectName == "card-capture-ocr-bench" && (*action == "setup" || *action == "preview" || *action == "deploy") {
+		if prior, err := os.ReadFile(filepath.Join(legacy, "state-bucket.json")); err == nil {
+			var r bucketReceipt
+			if json.Unmarshal(prior, &r) == nil && r.Created && r.Name == bucket && r.Account == *account && r.Region == *region {
+				if e = atomicWrite(filepath.Join(private, "state-bucket.json"), prior); e != nil {
+					return e
+				}
+			}
+		}
+	}
+	// Only annotate a state bucket this wizard actually bootstrapped; preserve shared bucket ownership.
+	if receiptBytes, err := os.ReadFile(filepath.Join(private, "state-bucket.json")); err == nil {
+		var receipt bucketReceipt
+		if json.Unmarshal(receiptBytes, &receipt) != nil {
+			return errors.New("invalid state bucket receipt")
+		}
+		if (*action == "setup" || *action == "preview" || *action == "deploy") && receipt.Created && receipt.Name == bucket && receipt.Account == *account && receipt.Region == *region {
+			if e = tagManagedStateBucket(ctx, bucket, *account, projectName, *env); e != nil {
+				return e
+			}
+		}
+	}
 	b, _ := json.MarshalIndent(Settings{1, *env, *profile, *region, *account, *backend}, "", "  ")
 	if e = atomicWrite(path, b); e != nil {
 		return e
@@ -760,7 +783,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	for _, pair := range [][2]string{{"aws:region", *region}, {"archive", archive}, {"memory", fmt.Sprint(*memory)}} {
+	for _, pair := range [][2]string{{"aws:region", *region}, {"archive", archive}, {"memory", fmt.Sprint(*memory)}, {"deploymentProject", projectName}, {"deploymentEnvironment", *env}} {
 		if e = command(ctx, dir, "pulumi", "config", "set", pair[0], pair[1], "--stack", stack, "--non-interactive"); e != nil {
 			return e
 		}
