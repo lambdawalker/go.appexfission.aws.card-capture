@@ -5,27 +5,34 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"image"
 	"image/jpeg"
 	"log/slog"
 	"time"
 )
 
 func ValidateJPEG(data []byte, a Asset) error {
+	_, err := decodeValidatedJPEG(data, a)
+	return err
+}
+
+func decodeValidatedJPEG(data []byte, a Asset) (image.Image, error) {
 	if int64(len(data)) != a.Size || a.Size > MaxBytes {
-		return ErrImage
+		return nil, ErrImage
 	}
 	sum := sha256.Sum256(data)
 	if base64.StdEncoding.EncodeToString(sum[:]) != a.SHA256 {
-		return ErrImage
+		return nil, ErrImage
 	}
 	cfg, e := jpeg.DecodeConfig(bytes.NewReader(data))
 	if e != nil || cfg.Width < 1 || cfg.Height < 1 || int64(cfg.Width)*int64(cfg.Height) > MaxPixels {
-		return ErrImage
+		return nil, ErrImage
 	}
-	if _, e = jpeg.Decode(bytes.NewReader(data)); e != nil {
-		return ErrImage
+	img, e := jpeg.Decode(bytes.NewReader(data))
+	if e != nil {
+		return nil, ErrImage
 	}
-	return nil
+	return img, nil
 }
 
 // Work is restart-safe. Revision/generation fences stop old workers publishing after cancellation.
@@ -130,16 +137,10 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 			validationErr = e
 			break
 		}
-		e = ValidateJPEG(b, a)
-		if e != nil {
-			clear(b)
-			validationErr = e
-			break
-		}
-		img, e := jpeg.Decode(bytes.NewReader(b))
+		img, err := decodeValidatedJPEG(b, a)
 		clear(b)
-		if e != nil {
-			validationErr = ErrImage
+		if err != nil {
+			validationErr = err
 			break
 		}
 		var output bytes.Buffer
