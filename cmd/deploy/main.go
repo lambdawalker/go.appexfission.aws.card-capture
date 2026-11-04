@@ -401,7 +401,8 @@ func run() error {
 	backend := fs.String("backend", "", "s3://bucket/dedicated-prefix")
 	ci := fs.Bool("non-interactive", false, "complete explicit inputs required")
 	approve := fs.Bool("approve", false, "explicit apply approval")
-	init := fs.Bool("init-stack", false, "explicitly initialize a new stack")
+	project := fs.String("project", "", "deployment project name (saved after first run)")
+	_ = fs.Bool("init-stack", false, "deprecated: stacks are detected automatically")
 	force := fs.Bool("force-rebuild", false, "ignore build cache")
 	reconfigure := fs.Bool("reconfigure", false, "ask for saved settings again")
 	memory := fs.Int("memory", 1024, "Lambda memory MB")
@@ -424,6 +425,26 @@ func run() error {
 		_, e = build(ctx, root, *force)
 		return e
 	}
+	root, e := os.Getwd()
+	if e != nil {
+		return e
+	}
+	projectName, local, central, e := projectPaths(root, *project, *ci)
+	if e != nil {
+		return e
+	}
+	detail("Project", projectName)
+	var projectFlags struct{ Environment string }
+	projectFlagsPath := filepath.Join(local, "flags.json")
+	if b, err := os.ReadFile(projectFlagsPath); err == nil {
+		if json.Unmarshal(b, &projectFlags) != nil {
+			return errors.New("invalid .deploy/flags.json")
+		}
+		if *env == "" {
+			*env = projectFlags.Environment
+		}
+	}
+
 	if *env == "" {
 		if *ci {
 			return errors.New("--environment required")
@@ -433,10 +454,6 @@ func run() error {
 	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`).MatchString(*env) || *env == "prod" {
 		return errors.New("use a validated non-production benchmark environment")
 	}
-	root, e := os.Getwd()
-	if e != nil {
-		return e
-	}
 	if _, e = os.Stat(filepath.Join(root, "go.mod")); e != nil {
 		return errors.New("run from repository root or use deploy launcher")
 	}
@@ -444,11 +461,17 @@ func run() error {
 		_, e := build(ctx, root, *force)
 		return e
 	}
-	home, e := os.UserConfigDir()
-	if e != nil {
+	projectFlags.Environment = *env
+	flagsBytes, _ := json.MarshalIndent(projectFlags, "", "  ")
+	if e = atomicWrite(projectFlagsPath, flagsBytes); e != nil {
 		return e
 	}
-	private := filepath.Join(home, "attestra", "card-capture-ocr-bench", *env)
+	private := filepath.Join(central, "environments", *env)
+	localEnv := filepath.Join(local, "environments", *env)
+	if e = os.MkdirAll(localEnv, 0700); e != nil {
+		return e
+	}
+
 	if e = os.MkdirAll(private, 0700); e != nil {
 		return e
 	}
@@ -458,8 +481,46 @@ func run() error {
 	}
 	lock.Close()
 	defer os.Remove(lock.Name())
+	var deploymentFlags struct{ Memory int }
+	memoryExplicit := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "memory" {
+			memoryExplicit = true
+		}
+	})
+	deploymentFlagsPath := filepath.Join(private, "flags.json")
+	if b, err := os.ReadFile(deploymentFlagsPath); err == nil {
+		if json.Unmarshal(b, &deploymentFlags) != nil {
+			return errors.New("invalid deployment flags")
+		}
+		if !memoryExplicit && deploymentFlags.Memory >= 128 && deploymentFlags.Memory <= 10240 {
+			*memory = deploymentFlags.Memory
+		}
+	}
+	if *memory < 128 || *memory > 10240 {
+		return errors.New("memory must be 128..10240 MB")
+	}
+	deploymentFlags.Memory = *memory
+	fb, _ := json.MarshalIndent(deploymentFlags, "", "  ")
+	if e = atomicWrite(deploymentFlagsPath, fb); e != nil {
+		return e
+	}
+	if e = atomicWrite(filepath.Join(localEnv, "flags.json"), fb); e != nil {
+		return e
+	}
 	saved := Settings{Version: 1, Environment: *env}
 	path := filepath.Join(private, "settings.json")
+	legacyHome, _ := os.UserConfigDir()
+	legacy := filepath.Join(legacyHome, "attestra", "card-capture-ocr-bench", *env)
+	if _, err := os.Stat(path); os.IsNotExist(err) && projectName == "card-capture-ocr-bench" {
+		if previous, err := os.ReadFile(filepath.Join(legacy, "settings.json")); err == nil {
+			if e = atomicWrite(path, previous); e != nil {
+				return e
+			}
+			note("Imported previous deployment settings")
+		}
+	}
+
 	if b, e := os.ReadFile(path); e == nil {
 		if json.Unmarshal(b, &saved) != nil || saved.Version != 1 || saved.Environment != *env {
 			return errors.New("invalid settings")
@@ -572,7 +633,7 @@ func run() error {
 		}
 		if existing {
 			name := prompt("S3 bucket name", "")
-			*backend = "s3://" + name + "/card-capture-ocr-bench"
+			*backend = "s3://" + name + "/infra-composer/" + projectName
 		} else {
 			if *action == "status" || *action == "destroy" {
 				return errors.New("select an existing state bucket for status/destroy")
@@ -581,7 +642,7 @@ func run() error {
 			if err != nil {
 				return err
 			}
-			*backend = "s3://" + name + "/card-capture-ocr-bench"
+			*backend = "s3://" + name + "/infra-composer/" + projectName
 		}
 	}
 	if !regexp.MustCompile(`^s3://[a-z0-9.-]+/[^?\s]+$`).MatchString(*backend) {
@@ -626,12 +687,20 @@ func run() error {
 	if e = atomicWrite(path, b); e != nil {
 		return e
 	}
+	if e = atomicWrite(filepath.Join(localEnv, "settings.json"), b); e != nil {
+		return e
+	}
 
 	if os.Getenv("PULUMI_CONFIG_PASSPHRASE") == "" {
 		if *ci {
 			return errors.New("PULUMI_CONFIG_PASSPHRASE secret required")
 		}
-		pass, e := vault(filepath.Join(private, "vault.bin"))
+		vaultPath := filepath.Join(localEnv, "vault.bin")
+		legacyVault := ""
+		if projectName == "card-capture-ocr-bench" {
+			legacyVault = filepath.Join(legacy, "vault.bin")
+		}
+		pass, e := loadProjectVault(vaultPath, legacyVault)
 		if e != nil {
 			return e
 		}
@@ -639,20 +708,21 @@ func run() error {
 		defer os.Unsetenv("PULUMI_CONFIG_PASSPHRASE")
 	}
 	if *action == "github-setup" {
-		return setupGitHub(ctx, Settings{1, *env, *profile, *region, *account, *backend}, *githubRole, *githubRepo, *githubEnv)
+		return setupGitHub(ctx, Settings{1, *env, *profile, *region, *account, *backend}, *githubRole, *githubRepo, *githubEnv, projectName)
 	}
 	dir := filepath.Join(root, "infrastructure", "cmd", "ocr-bench")
 	stack := "ocr-" + *env
 	if e = command(ctx, dir, "pulumi", "login", *backend, "--non-interactive"); e != nil {
 		return e
 	}
-	if *init {
-		if e = command(ctx, dir, "pulumi", "stack", "init", stack, "--secrets-provider", "passphrase", "--non-interactive"); e != nil {
-			return e
-		}
-	} else if e = command(ctx, dir, "pulumi", "stack", "select", stack, "--non-interactive"); e != nil {
-		return errors.New("select failed; for a NEW stack explicitly pass --init-stack, otherwise recover backend/access")
+	if e = ensureStack(ctx, dir, stack, filepath.Join(private, "stack.json"), stackRecord{Account: *account, Region: *region, Backend: *backend}, *action == "setup" || *action == "preview" || *action == "deploy",
+		func(args ...string) error { return command(ctx, dir, append([]string{"pulumi"}, args...)...) },
+		func() ([]byte, error) {
+			return outputIn(ctx, dir, "pulumi", "stack", "ls", "--json", "--non-interactive")
+		}); e != nil {
+		return e
 	}
+
 	// Restore authoritative encrypted configuration before setting nonsecret values.
 	if e = command(ctx, dir, "pulumi", "config", "refresh", "--force", "--stack", stack, "--non-interactive"); e != nil {
 		return e
@@ -722,6 +792,7 @@ func run() error {
 	if e = atomicWrite(filepath.Join(private, "outputs.json"), outputs); e != nil {
 		return e
 	}
+	heading("Deployment complete")
 	fmt.Println(string(outputs))
 	return nil
 }
