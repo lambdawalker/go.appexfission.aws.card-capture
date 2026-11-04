@@ -724,7 +724,11 @@ func run() error {
 	}
 
 	// Restore authoritative encrypted configuration before setting nonsecret values.
-	if e = command(ctx, dir, "pulumi", "config", "refresh", "--force", "--stack", stack, "--non-interactive"); e != nil {
+	if e = restoreStackConfig(func() ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "pulumi", "config", "refresh", "--force", "--stack", stack, "--non-interactive")
+		cmd.Dir = dir
+		return cmd.CombinedOutput()
+	}); e != nil {
 		return e
 	}
 	if *action == "status" {
