@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestAtomicWrite(t *testing.T) {
@@ -68,5 +71,85 @@ exit 1
 	next, _ := os.ReadFile(archive + ".json")
 	if string(old) == string(next) {
 		t.Fatal("source fingerprint unchanged")
+	}
+}
+
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "--confirm-child") {
+		os.Exit(readApproval(os.Args[1] != "--confirm-child-no"))
+	}
+	os.Exit(m.Run())
+}
+func TestTimedChoice(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("console key helper requires Windows terminal")
+	}
+	for _, tc := range []struct {
+		name, input     string
+		def, want, fail bool
+	}{
+		{"yes", "y", false, true, false}, {"no", "n", true, false, false}, {"enter-default-no", "\n", false, false, false}, {"enter-default-yes", "\n", true, true, false}, {"eof", "", true, false, true}, {"escape", "\x1b", true, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, w, e := os.Pipe()
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer r.Close()
+			old := os.Stdin
+			os.Stdin = r
+			defer func() { os.Stdin = old }()
+			w.Write([]byte(tc.input))
+			w.Close()
+			got, e := timedChoice(tc.def)
+			if got != tc.want || (e != nil) != tc.fail {
+				t.Fatal(got, e)
+			}
+		})
+	}
+}
+func TestTimedChoiceTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX pipe")
+	}
+	r, w, _ := os.Pipe()
+	defer r.Close()
+	defer w.Close()
+	old := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = old }()
+	previous := countdownStep
+	countdownStep = 20 * time.Millisecond
+	defer func() { countdownStep = previous }()
+	for _, def := range []bool{false, true} {
+		got, e := timedChoice(def)
+		if e != nil || got != def {
+			t.Fatal(got, e)
+		}
+	}
+}
+func TestBootstrapResume(t *testing.T) {
+	dir := t.TempDir()
+	creates := 0
+	fail := true
+	run := func(args ...string) error {
+		if args[0] == "create-bucket" {
+			creates++
+		}
+		if args[0] == "put-bucket-versioning" && fail {
+			return errors.New("interrupted")
+		}
+		return nil
+	}
+	if _, e := bootstrapWith(context.Background(), dir, "123456789012", "us-east-2", run); e == nil {
+		t.Fatal("expected failure")
+	}
+	fail = false
+	name, e := bootstrapWith(context.Background(), dir, "123456789012", "us-east-2", run)
+	if e != nil || name == "" || creates != 1 {
+		t.Fatal(name, e, creates)
+	}
+	if _, e = bootstrapWith(context.Background(), dir, "999999999999", "us-east-2", run); e == nil {
+		t.Fatal("scope mismatch accepted")
 	}
 }

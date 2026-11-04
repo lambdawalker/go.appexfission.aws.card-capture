@@ -6,7 +6,9 @@ The baseline uses the existing model `google.gemma-4-e2b`, high reasoning, 4096-
 
 ## Prerequisites
 
-Install Go 1.27.3, AWS CLI v2 and Pulumi CLI v3, available on PATH. Configure an AWS IAM Identity Center profile. Choose an existing state bucket in the target account and region with versioning, encryption and all four public-access blocks. Use an exclusive S3 prefix for this project. Bucket creation is a separate operator-owned bootstrap operation, never implicit.
+Install Go 1.27.3, AWS CLI v2 and Pulumi CLI v3, available on PATH. Configure an AWS IAM Identity Center profile. On first interactive setup, the script displays the STS account and signed-in identity and asks whether to proceed, defaulting to yes after five seconds. It then asks “Do you have an S3 bucket for deployment state?” with a five-second default of no. No (or timeout/Enter) automatically creates a uniquely named state bucket in the selected account/region, with versioning, AES256 encryption, all public-access blocks and a TLS-only policy. Yes asks only for the existing bucket name; the project state prefix is added automatically. Saved state locations are reused without asking again. Bucket bootstrap is an explicitly displayed part of first setup, including preview setup; it does not deploy the OCR stack. EOF, Escape and Ctrl+C cancel rather than acting as timer expiry.
+
+Automatic state bootstrap additionally needs s3:CreateBucket, s3:PutBucketVersioning, s3:PutEncryptionConfiguration, s3:PutBucketPublicAccessBlock and s3:PutBucketPolicy. Bootstrap receipts are stored privately as state-bucket.json; partial configuration is resumed for the same bucket. The state bucket remains separate from the OCR input bucket and is never removed by benchmark teardown.
 
 The deploying role needs the Pulumi AWS permissions to manage the listed S3, Lambda, IAM and CloudWatch resources, plus access to its state prefix and bucket validation APIs. The benchmark Lambda can only read `inputs/*` in its own bucket and invoke the configured model; it has no upload or state access. The console operator needs `s3:PutObject`, `s3:DeleteObject` on the bench inputs and `lambda:InvokeFunction` on the output function. Bedrock model availability/account authorization must already be enabled in the selected region.
 
@@ -16,16 +18,15 @@ Run from any directory through the root launcher. Windows uses `deploy.bat` with
 
 ```sh
 ./deploy.sh --action setup --environment dev --profile YOUR_SSO_PROFILE \
-  --account 123456789012 --region us-east-2 \
-  --backend s3://YOUR_STATE_BUCKET/card-capture-ocr-bench --init-stack
+  --region us-east-2 --init-stack
 ./deploy.sh --action preview --environment dev
 ./deploy.sh --action deploy --environment dev
 ./deploy.sh --action status --environment dev
 ```
 
-Only pass `--init-stack` when intentionally creating a NEW stack. Failed selection never creates a stack. Stack names are `ocr-<environment>` under project `card-capture-ocr-bench`. The reserved name `prod` is rejected. No shared/admin deployment is involved.
+Only pass `--init-stack` when intentionally creating a NEW stack. Failed selection never creates a stack. Stack names are `ocr-<environment>` under project `card-capture-ocr-bench`. The reserved name `prod` is rejected. CI still requires explicit --account and --backend and never auto-creates a state bucket. No shared/admin deployment is involved.
 
-Environment is selected first. Nonsecret answers are saved under the OS user configuration directory `attestra/card-capture-ocr-bench/<environment>/settings.json`; flags override saved settings. `--reconfigure` asks again. Profile credentials remain in AWS's own SSO cache. The program validates STS account/role, selected region and state-bucket owner/region/versioning/encryption/public blocking before Pulumi operations; expired interactive authentication invokes SSO login. CI never logs into SSO.
+Environment is selected first. Nonsecret answers are saved under the OS user configuration directory `attestra/card-capture-ocr-bench/<environment>/settings.json`; flags override saved settings. `--reconfigure` asks again. Profile credentials remain in AWS's own SSO cache. The account number is discovered from STS rather than requested. An explicit --account or saved account remains an account mismatch guard; use --reconfigure to deliberately switch accounts. The program validates STS account/role, selected region and state-bucket owner/region/versioning/encryption/public blocking before Pulumi operations; expired interactive authentication invokes SSO login. CI never logs into SSO.
 
 The local vault uses versioned AES-256-GCM with PBKDF2-SHA256 (600,000 iterations), random salt/nonce and environment/path binding. Enter its unlock passphrase without echo and confirm on creation. Enter the existing Pulumi passphrase for an existing stack; never substitute a new one. Unlock is once per run. A corrupt vault/wrong passphrase fails without overwriting it. Back up the complete private environment directory and remember both passphrases. Moving a vault to a different path requires deliberate migration, not renaming. Alternatively provide `PULUMI_CONFIG_PASSPHRASE` through a protected process environment; this bypasses local persistence.
 
@@ -33,7 +34,7 @@ S3 encryption, Pulumi configuration-secret encryption and the local vault protec
 
 Build happens before preview/apply. Artifact cache keys include canonical source/module content (including uncommitted edits), toolchain and packaging recipe; ZIP hashes are verified before reuse. Use `--force-rebuild` to bypass it, or remove only `dist/ocr-bench` while no build runs. Pulumi still previews remote changes; a local cache never skips infrastructure reconciliation.
 
-Deploy first produces a saved plan. Interactive apply shows the exact target and a five-second default-to-proceed countdown; Enter/yes proceeds, no/Escape/Ctrl+C cancels. Closed input/EOF cancels. Destructive plans require a separate explicit stack-name confirmation with no timeout. CI requires `--non-interactive --approve` and rejects destructive plans. Preview/setup/status/build never become apply.
+Deploy first produces a saved plan. Interactive apply shows the exact target and a five-second default-to-proceed countdown; Enter/yes proceeds, no/Escape/Ctrl+C cancels. Closed input/EOF cancels. The account and S3 questions use the same timer/input handling. Destructive plans require a separate explicit stack-name confirmation with no timeout. CI requires `--non-interactive --approve` and rejects destructive plans. Preview/setup/status/build never become apply.
 
 ## Run photos from the console
 
