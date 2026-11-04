@@ -394,7 +394,7 @@ func run() error {
 	ctx := context.Background()
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	env := fs.String("environment", "", "isolated environment")
-	action := fs.String("action", "preview", "setup, build, preview, deploy, status, destroy, github-setup")
+	action := fs.String("action", "", "setup, build, preview, deploy, status, destroy, github-setup (default: deploy interactively, preview in CI)")
 	profile := fs.String("profile", "", "AWS SSO profile (omit in CI)")
 	region := fs.String("region", "", "AWS region")
 	account := fs.String("account", "", "expected AWS account")
@@ -412,6 +412,7 @@ func run() error {
 	if e := fs.Parse(os.Args[1:]); e != nil {
 		return e
 	}
+	*action = defaultAction(*action, *ci)
 	allowedActions := map[string]bool{"setup": true, "build": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true}
 	if !allowedActions[*action] {
 		return errors.New("unknown action")

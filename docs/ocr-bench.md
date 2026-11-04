@@ -109,3 +109,7 @@ No live deployment or workflow dispatch is required for these checks.
 The wizard groups account details, state, build, preview and apply into labeled steps. On terminals, the countdown updates one line in place and clears it on completion/cancellation. Redirected logs print a single default/timeout message instead of progress frames. Color is optional, respects NO_COLOR and TERM=dumb, and falls back to plain text on older Windows consoles; the in-place countdown uses carriage returns rather than ANSI cursor commands.
 
 Project records and `.deploy` are local operator data, not a replacement for Pulumi state backups. Removing either is not permission to recreate missing infrastructure. For a moved checkout, deliberately review/update the central project root binding; do not rename encrypted vaults because they are bound to their paths.
+
+### Default launcher action
+
+A plain interactive `deploy.bat` or `./deploy.sh` invocation defaults to **deploy**: it builds, previews, then offers the five-second apply confirmation. Use `--action preview` to stop after planning. Noninteractive runs without an action continue to default to preview; applying in CI still requires explicit `--action deploy --approve`. Explicit status/build/setup/preview actions never escalate to apply.
