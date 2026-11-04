@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.7
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.69.1
 	github.com/aws/smithy-go v1.28.7
-	github.com/lambdawalker/go.infra.composer v0.0.0-20261101203048-2628bc245bc6
+	github.com/lambdawalker/go.infra.composer v0.0.0-20261103224925-d8340809719c
 )
 
 require (

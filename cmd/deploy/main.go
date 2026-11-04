@@ -390,11 +390,11 @@ func build(ctx context.Context, root string, force bool) (string, error) {
 	manifest, _ := json.Marshal(struct{ Input, Artifact string }{fingerprint, hex.EncodeToString(sum[:])})
 	return archive, atomicWrite(marker, manifest)
 }
-func run() error {
+func run() (runErr error) {
 	ctx := context.Background()
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	env := fs.String("environment", "", "isolated environment")
-	action := fs.String("action", "", "setup, build, preview, deploy, status, destroy, github-setup (default: deploy interactively, preview in CI)")
+	action := fs.String("action", "", "setup, build, preview, deploy, status, destroy, github-setup, report (default: deploy interactively, preview in CI)")
 	profile := fs.String("profile", "", "AWS SSO profile (omit in CI)")
 	region := fs.String("region", "", "AWS region")
 	account := fs.String("account", "", "expected AWS account")
@@ -405,6 +405,7 @@ func run() error {
 	_ = fs.Bool("init-stack", false, "deprecated: stacks are detected automatically")
 	force := fs.Bool("force-rebuild", false, "ignore build cache")
 	reconfigure := fs.Bool("reconfigure", false, "ask for saved settings again")
+	refreshReport := fs.Bool("refresh-report", false, "verify report presence with read-only refresh")
 	memory := fs.Int("memory", 1024, "Lambda memory MB")
 	githubRole := fs.String("github-role", "", "existing scoped OIDC deployment role")
 	githubRepo := fs.String("github-repository", "", "verified repository")
@@ -413,7 +414,10 @@ func run() error {
 		return e
 	}
 	*action = defaultAction(*action, *ci)
-	allowedActions := map[string]bool{"setup": true, "build": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true}
+	if *refreshReport && *action != "report" {
+		return errors.New("--refresh-report requires --action report")
+	}
+	allowedActions := map[string]bool{"setup": true, "build": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true, "report": true}
 	if !allowedActions[*action] {
 		return errors.New("unknown action")
 	}
@@ -636,7 +640,7 @@ func run() error {
 			name := prompt("S3 bucket name", "")
 			*backend = "s3://" + name + "/infra-composer/" + projectName
 		} else {
-			if *action == "status" || *action == "destroy" {
+			if *action == "status" || *action == "destroy" || *action == "report" {
 				return errors.New("select an existing state bucket for status/destroy")
 			}
 			name, err := bootstrapBucket(ctx, private, *account, *region)
@@ -755,6 +759,26 @@ func run() error {
 	}); e != nil {
 		return e
 	}
+	var activeFeatureReport *featureReport
+	if *action == "report" || *action == "preview" || *action == "deploy" {
+		attempt := newFeatureReport(ctx, root, dir, stack, private, local, Settings{1, *env, *profile, *region, *account, *backend}, projectName, *action)
+		if *action == "report" {
+			return attempt.finish(ctx, nil, *refreshReport)
+		}
+		eventFile, err := os.CreateTemp(private, "preview-events-*.json")
+		if err != nil {
+			return err
+		}
+		attempt.previewLog = eventFile.Name()
+		eventFile.Close()
+		defer func() {
+			if err := attempt.finish(ctx, runErr, attempt.applied); err != nil {
+				fmt.Fprintln(os.Stderr, "Feature report could not be saved:", err)
+			}
+		}()
+		activeFeatureReport = attempt
+
+	}
 	if *action == "status" {
 		return command(ctx, dir, "pulumi", "stack", "output", "--stack", stack, "--json")
 	}
@@ -794,7 +818,7 @@ func run() error {
 	plan := filepath.Join(private, "plan.json")
 	defer os.Remove(plan)
 	heading("Preview changes")
-	if e = command(ctx, dir, "pulumi", "preview", "--stack", stack, "--save-plan", plan, "--non-interactive"); e != nil {
+	if e = command(ctx, dir, "pulumi", "preview", "--stack", stack, "--save-plan", plan, "--event-log", activeFeatureReport.previewLog, "--non-interactive"); e != nil {
 		return e
 	}
 	if *action == "preview" {
@@ -824,6 +848,7 @@ func run() error {
 	} else if e = confirm(); e != nil {
 		return e
 	}
+	activeFeatureReport.applied = true
 	heading("Apply previewed changes")
 	if e = command(ctx, dir, "pulumi", "up", "--stack", stack, "--plan", plan, "--yes", "--non-interactive"); e != nil {
 		return e
