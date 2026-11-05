@@ -96,3 +96,47 @@ func TestGemmaRejectsMalformedTruncatedAndOversizedResponses(t *testing.T) {
 		})
 	}
 }
+
+func TestStitchedBenchmarkSendsOneImage(t *testing.T) {
+	calls := 0
+	x := BedrockExtractor{Transport: &Transport{Config: aws.Config{Region: "us-east-2", Credentials: credentials{}}, HTTP: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		calls++
+		var payload struct {
+			Messages []struct {
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		count := 0
+		layout := false
+		for _, m := range payload.Messages {
+			for _, c := range m.Content {
+				if c.Type == "image_url" {
+					count++
+				}
+				if strings.Contains(c.Text, "FRONT at the TOP and the BACK at the BOTTOM") {
+					layout = true
+				}
+			}
+		}
+		if count != 1 || !layout {
+			t.Fatal("incorrect stitched request", count, layout)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"content":"{}"}}]}`))}, nil
+	})}}}
+	data := cardImages(t)[0].JPEG
+	if _, err := x.ExtractStitched(context.Background(), data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.Extract(context.Background(), []capture.CardImage{{Slot: "stitched", JPEG: data}}); err == nil {
+		t.Fatal("production pair contract changed")
+	}
+	if calls != 1 {
+		t.Fatal(calls)
+	}
+}

@@ -10,8 +10,9 @@ import (
 )
 
 type Request struct {
-	Front string `json:"front"`
-	Back  string `json:"back"`
+	Stitched string `json:"stitched,omitempty"`
+	Front    string `json:"front,omitempty"`
+	Back     string `json:"back,omitempty"`
 }
 type Result struct {
 	PrepareMS   int64  `json:"prepare_ms"`
@@ -37,7 +38,13 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 	valid := func(k string) bool {
 		return strings.HasPrefix(k, "inputs/") && !strings.Contains(k, "..") && len(k) < 512
 	}
-	if !valid(req.Front) || !valid(req.Back) || req.Front == req.Back {
+	keys, slots := []string{req.Front, req.Back}, []string{"front", "back"}
+	if req.Stitched != "" {
+		if !valid(req.Stitched) || req.Front != "" || req.Back != "" {
+			return finish("invalid_input")
+		}
+		keys, slots = []string{req.Stitched}, []string{"stitched"}
+	} else if !valid(req.Front) || !valid(req.Back) || req.Front == req.Back {
 		return finish("invalid_input")
 	}
 	images := make([]capture.CardImage, 0, 2)
@@ -46,16 +53,27 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 			clear(im.JPEG)
 		}
 	}()
-	for i, k := range []string{req.Front, req.Back} {
+	for i, k := range keys {
 		b, e := read(ctx, k)
 		if e != nil {
 			return finish("read_failed")
 		}
-		images = append(images, capture.CardImage{Slot: []string{"front", "back"}[i], JPEG: b})
+		images = append(images, capture.CardImage{Slot: slots[i], JPEG: b})
 	}
 	result.ReadMS = time.Since(start).Milliseconds()
 	started := time.Now()
-	_, e := extractor.Extract(ctx, images)
+	var e error
+	if req.Stitched != "" {
+		x, ok := extractor.(interface {
+			ExtractStitched(context.Context, []byte) (capture.CardData, error)
+		})
+		if !ok {
+			return finish("stitched_unsupported")
+		}
+		_, e = x.ExtractStitched(ctx, images[0].JPEG)
+	} else {
+		_, e = extractor.Extract(ctx, images)
+	}
 	result.ExtractMS = time.Since(started).Milliseconds()
 	if e != nil {
 		return finish("extraction_failed")
