@@ -37,8 +37,9 @@ func TestGemmaRequestUsesBoundedImagesAndSignedMantle(t *testing.T) {
 			t.Fatal("request exceeds model limit")
 		}
 		var v struct {
-			Model    string `json:"model"`
-			Messages []struct {
+			ReasoningEffort string `json:"reasoning_effort"`
+			Model           string `json:"model"`
+			Messages        []struct {
 				Content []struct {
 					Type     string `json:"type"`
 					ImageURL struct {
@@ -49,6 +50,9 @@ func TestGemmaRequestUsesBoundedImagesAndSignedMantle(t *testing.T) {
 		}
 		if e = json.Unmarshal(b, &v); e != nil {
 			t.Fatal(e)
+		}
+		if v.ReasoningEffort != "high" {
+			t.Fatal("production default changed", v.ReasoningEffort)
 		}
 		if v.Model != "google.gemma-4-e2b" {
 			t.Fatal("wrong model")
@@ -99,10 +103,11 @@ func TestGemmaRejectsMalformedTruncatedAndOversizedResponses(t *testing.T) {
 
 func TestStitchedBenchmarkSendsOneImage(t *testing.T) {
 	calls := 0
-	x := BedrockExtractor{Transport: &Transport{Config: aws.Config{Region: "us-east-2", Credentials: credentials{}}, HTTP: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+	x := BedrockExtractor{ReasoningEffort: "medium", Transport: &Transport{Config: aws.Config{Region: "us-east-2", Credentials: credentials{}}, HTTP: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
 		calls++
 		var payload struct {
-			Messages []struct {
+			ReasoningEffort string `json:"reasoning_effort"`
+			Messages        []struct {
 				Content []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -111,6 +116,9 @@ func TestStitchedBenchmarkSendsOneImage(t *testing.T) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
+		}
+		if payload.ReasoningEffort != "medium" {
+			t.Fatal("benchmark must request medium effort", payload.ReasoningEffort)
 		}
 		count := 0
 		layout := false

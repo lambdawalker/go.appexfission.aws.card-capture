@@ -25,6 +25,8 @@ var errExtraction = errors.New("extraction_unavailable")
 // BedrockExtractor uses the Lambda role, not API keys or client-supplied endpoints.
 type BedrockExtractor struct {
 	Transport *Transport
+	// ReasoningEffort defaults to high; the standalone benchmark selects medium.
+	ReasoningEffort string
 	// Observe receives stage durations only, never document contents. Calls are synchronous.
 	Observe func(stage string, elapsedMS int64)
 }
@@ -61,7 +63,14 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		clear(b)
 		content = append(content, map[string]any{"type": "text", "text": im.Slot}, map[string]any{"type": "image_url", "image_url": map[string]string{"url": "data:image/jpeg;base64," + encoded}})
 	}
-	body, e := json.Marshal(map[string]any{"model": ExtractionModel, "messages": []any{map[string]any{"role": "user", "content": content}}, "max_completion_tokens": 4096, "reasoning_effort": "high", "stream": false, "store": false})
+	effort := x.ReasoningEffort
+	if effort == "" {
+		effort = "high"
+	}
+	if effort != "low" && effort != "medium" && effort != "high" {
+		return capture.CardData{}, errExtraction
+	}
+	body, e := json.Marshal(map[string]any{"model": ExtractionModel, "messages": []any{map[string]any{"role": "user", "content": content}}, "max_completion_tokens": 4096, "reasoning_effort": effort, "stream": false, "store": false})
 	if e != nil || len(body) > 3500000 {
 		return capture.CardData{}, errExtraction
 	}
