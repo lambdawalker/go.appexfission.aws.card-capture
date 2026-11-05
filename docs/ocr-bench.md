@@ -44,6 +44,16 @@ Deploy first produces a saved plan. Interactive apply shows the exact target and
 
 ## Run photos from the console
 
+The usual command is now:
+
+```sh
+go run ./cmd/ocr-bench
+```
+
+It loads the project/last environment from `.deploy`, profile/region/account from saved deployment settings, and bucket/function from the successful deployment outputs in the central project records. Explicit flags override saved values. It finds a unique front.jpg/front.jpeg/front.png and back equivalent in the repository or photos directory; otherwise it asks for the missing paths and remembers them. PNG/JPEG inputs are converted to temporary JPEGs automatically. Required missing values are prompted individually; EOF fails clearly rather than guessing. Authentication/account verification happens before uploads. Cleanup targets only successfully uploaded objects.
+
+Use `--environment qa` to select a different saved deployment. Ten serial runs and `ocr-bench-report.json` are the defaults. The full command below remains available for explicit overrides.
+
 Copy the `bucket` and `function` outputs from status:
 
 ```sh
