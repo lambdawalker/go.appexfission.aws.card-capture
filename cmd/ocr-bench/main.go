@@ -196,29 +196,31 @@ func run() error {
 	}
 	type sample struct {
 		ocrbench.Result
-		ClientMS int64 `json:"client_ms"`
+		ClientMS   int64       `json:"client_ms"`
+		Diagnostic *diagnostic `json:"diagnostic,omitempty"`
 	}
 	samples := []sample{}
 	warm := []int64{}
 	all := []int64{}
 	success := 0
 	for i := 0; i < *runs; i++ {
-		resultPath := filepath.Join(temp, "response.json")
+		resultPath := filepath.Join(temp, fmt.Sprintf("response-%d.json", i))
 		started := time.Now()
-		meta, e := aws(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", resultPath)
+		meta, stderr, invokeErr := invokeAWS(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", "--output", "json", "--no-cli-pager", "--log-type", "Tail", resultPath)
 		r := sample{ClientMS: time.Since(started).Milliseconds()}
-		var envelope struct {
-			FunctionError string
-			StatusCode    int
-		}
-		if e != nil || json.Unmarshal(meta, &envelope) != nil || envelope.FunctionError != "" || envelope.StatusCode != 200 {
-			r.Error = "invoke_failed"
-		} else {
-			b, e := os.ReadFile(resultPath)
-			if e != nil || json.Unmarshal(b, &r.Result) != nil {
-				r.Error = "invalid_response"
+		body, _ := os.ReadFile(resultPath)
+		r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
+		clear(body)
+		clear(stderr)
+		clear(meta)
+		if r.Diagnostic != nil {
+			fmt.Fprintf(os.Stderr, "Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
+			if r.Diagnostic.RequestID != "" {
+				fmt.Fprintf(os.Stderr, " • request %s", r.Diagnostic.RequestID)
 			}
+			fmt.Fprintln(os.Stderr)
 		}
+
 		samples = append(samples, r)
 		if r.Success {
 			success++

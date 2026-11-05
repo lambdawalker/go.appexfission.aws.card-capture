@@ -152,3 +152,7 @@ The HTML explorer supports hierarchy, search, filters and artifact details. JSON
 Wizard-owned bootstrap state buckets are included only with matching account/region/identity receipts and a scoped head-bucket check. Operator-supplied shared state buckets are external dependencies and are not claimed. No application dashboard, DNS/GitHub inventory expansion or cross-feature aggregation is added to this library.
 
 Taggable benchmark resources additionally expose standard `ic:owner`, `ic:feature` and `ic:managed-by` tags for compatibility with host reporting. Untaggable child ownership is assigned only within this dedicated feature stack. The existing `preview.sh` offline full-feature catalog remains separate: its illustrative/mock inventory never proves deployment.
+
+### Benchmark failure diagnostics
+
+Lambda invocation explicitly requests JSON output, independent of the AWS CLI's saved output format. Per-run failures include a diagnostic stage, stable code, actionable message, HTTP status where available, CloudWatch log group and a request ID when returned in the log tail. CLI permission/not-found/authentication/throttling errors, Lambda runtime startup/timeouts, invalid metadata, invalid responses, S3 reads and extraction failures are distinguished. Raw CLI/provider error messages, Lambda payloads and log tails are not written to the report. A zero percentile with zero successes is not a latency measurement; inspect the per-run diagnostics first.
