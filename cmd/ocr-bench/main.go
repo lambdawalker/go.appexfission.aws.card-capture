@@ -37,7 +37,7 @@ func percentile(values []int64, p float64) int64 {
 	sort.Slice(v, func(i, j int) bool { return v[i] < v[j] })
 	return v[int(math.Ceil(p*float64(len(v))))-1]
 }
-func run() error {
+func run() (runErr error) {
 	front := flag.String("front", "", "front JPEG")
 	back := flag.String("back", "", "back JPEG")
 	bucket := flag.String("bucket", "", "bench bucket output")
@@ -69,6 +69,21 @@ func run() error {
 	} else {
 		root = cwd
 	}
+	bundle := filepath.Join(root, ".deploy", "ocr-bench", "runs", time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if e = bundleJSON(filepath.Join(bundle, "manifest.json"), map[string]any{"schema": 1, "environment": *environment, "started_at": time.Now().UTC(), "runs_requested": *runs}); e != nil {
+		return e
+	}
+	fmt.Println("Diagnostic bundle:", bundle)
+	localStage := "resolve_inputs"
+	defer func() {
+		status := "succeeded"
+		if runErr != nil {
+			status = "failed"
+		}
+		if e := bundleJSON(filepath.Join(bundle, "local", "completion.json"), map[string]any{"stage": localStage, "status": status, "finished_at": time.Now().UTC(), "note": "See attempt local/cloud files for diagnostics; setup failures occur before an attempt is created."}); e != nil {
+			fmt.Fprintln(os.Stderr, "Could not save bundle completion:", e)
+		}
+	}()
 	if *profile == "" {
 		*profile = saved.Profile
 	}
@@ -120,6 +135,10 @@ func run() error {
 	os.Setenv("AWS_DEFAULT_REGION", *region)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*100*time.Second+time.Minute)
 	defer cancel()
+	if e = bundleJSON(filepath.Join(bundle, "local", "setup.json"), map[string]any{"environment": *environment, "profile": *profile, "region": *region, "bucket": *bucket, "function": *fn, "expected_account": saved.Account, "runs": *runs}); e != nil {
+		return e
+	}
+	localStage = "authentication"
 	identity, e := aws(ctx, "sts", "get-caller-identity", "--output", "json")
 	if e != nil {
 		return e
@@ -131,6 +150,7 @@ func run() error {
 	if saved.Account != "" && who.Account != saved.Account {
 		return fmt.Errorf("signed-in AWS account differs from saved deployment")
 	}
+	localStage = "image_preparation"
 	imageDir, e := os.MkdirTemp("", "ocr-bench-images-")
 	if e != nil {
 		return e
@@ -165,6 +185,7 @@ func run() error {
 			return e
 		}
 	}
+	localStage = "upload"
 	uploadStart := time.Now()
 	uploaded := []string{}
 	defer func() {
@@ -196,29 +217,56 @@ func run() error {
 	}
 	type sample struct {
 		ocrbench.Result
-		ClientMS int64 `json:"client_ms"`
+		ClientMS   int64       `json:"client_ms"`
+		Diagnostic *diagnostic `json:"diagnostic,omitempty"`
 	}
 	samples := []sample{}
 	warm := []int64{}
 	all := []int64{}
 	success := 0
+	localStage = "invocation"
 	for i := 0; i < *runs; i++ {
-		resultPath := filepath.Join(temp, "response.json")
+		resultPath := filepath.Join(temp, fmt.Sprintf("response-%d.json", i))
 		started := time.Now()
-		meta, e := aws(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", resultPath)
+		meta, stderr, invokeErr := invokeAWS(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", "--output", "json", "--no-cli-pager", "--log-type", "Tail", resultPath)
 		r := sample{ClientMS: time.Since(started).Milliseconds()}
-		var envelope struct {
-			FunctionError string
-			StatusCode    int
-		}
-		if e != nil || json.Unmarshal(meta, &envelope) != nil || envelope.FunctionError != "" || envelope.StatusCode != 200 {
-			r.Error = "invoke_failed"
-		} else {
-			b, e := os.ReadFile(resultPath)
-			if e != nil || json.Unmarshal(b, &r.Result) != nil {
-				r.Error = "invalid_response"
+		body, _ := os.ReadFile(resultPath)
+		r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
+		attemptDir := filepath.Join(bundle, fmt.Sprintf("attempt-%03d", i+1))
+		requestID, tail, httpStatus := invocationTail(meta)
+		exitStatus := 0
+		if invokeErr != nil {
+			exitStatus = 1
+			if exit, ok := invokeErr.(*exec.ExitError); ok {
+				exitStatus = exit.ExitCode()
 			}
 		}
+		if e = bundleJSON(filepath.Join(attemptDir, "local", "invoke.json"), map[string]any{"started_at": started.UTC(), "finished_at": time.Now().UTC(), "client_ms": r.ClientMS, "cli_exit_code": exitStatus, "http_status": httpStatus, "diagnostic": r.Diagnostic}); e != nil {
+			return e
+		}
+		logCtx, logCancel := context.WithTimeout(context.Background(), 20*time.Second)
+		cloud := collectCloud(logCtx, invokeAWS, "/aws/lambda/"+*fn, requestID, started, time.Now(), tail)
+		logCancel()
+		clear(tail)
+		if e = bundleJSON(filepath.Join(attemptDir, "cloud", "logs.json"), cloud); e != nil {
+			return e
+		}
+		if e = bundleJSON(filepath.Join(attemptDir, "cloud", "result.json"), r.Result); e != nil {
+			return e
+		}
+		fmt.Printf("Cloud logs: %s\n", cloud.Status)
+
+		clear(body)
+		clear(stderr)
+		clear(meta)
+		if r.Diagnostic != nil {
+			fmt.Fprintf(os.Stderr, "Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
+			if r.Diagnostic.RequestID != "" {
+				fmt.Fprintf(os.Stderr, " • request %s", r.Diagnostic.RequestID)
+			}
+			fmt.Fprintln(os.Stderr)
+		}
+
 		samples = append(samples, r)
 		if r.Success {
 			success++
@@ -229,12 +277,16 @@ func run() error {
 		}
 		fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
 	}
+	localStage = "report"
 	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
 	b, e := json.MarshalIndent(summary, "", "  ")
 	if e != nil {
 		return e
 	}
 	if e = os.WriteFile(*report, b, 0600); e != nil {
+		return e
+	}
+	if e = bundleJSON(filepath.Join(bundle, "summary.json"), summary); e != nil {
 		return e
 	}
 	fmt.Println(string(b))
