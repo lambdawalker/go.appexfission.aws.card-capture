@@ -2,7 +2,7 @@
 
 This bench measures the existing production `BedrockExtractor` from the console. It deploys a private S3 bucket, an ARM64 Lambda, IAM role/policies and seven-day CloudWatch logs. No Android, Cognito, onboarding API, runtime-policy/reset tables, SQS, DNS or SES deployment is needed. This is the direct-extraction milestone; queued full-pipeline comparison remains future work.
 
-The baseline uses the existing model `google.gemma-4-e2b`, high reasoning, 4096-token ceiling, JPEG preprocessing and 55-second inference deadline. The Lambda has a 90-second timeout and configurable memory, default 1024 MB. Production defaults are unchanged. The optional synchronous extractor observer reports preparation and complete response-read durations only.
+The baseline uses the existing model `google.gemma-4-e2b`, medium reasoning, 4096-token ceiling, JPEG preprocessing and 55-second inference deadline. The Lambda has a 90-second timeout and configurable memory, default 1024 MB. Production defaults are unchanged. The optional synchronous extractor observer reports preparation and complete response-read durations only.
 
 ## Prerequisites
 
@@ -201,3 +201,8 @@ The width and height fields describe the actual uploaded JPEG after any size
 fallback, not the 1200 × 1200 maximum. Smaller photos are not upscaled.
 These console preparation/report changes require pulling the updated runner;
 the existing stitched-input Lambda remains compatible.
+
+The benchmark now requests `reasoning_effort: "medium"`; production extraction
+continues to default to `high`. Redeploy with `.\deploy.bat` before measuring
+this change. Keep images and run count constant when comparing against prior
+reports, and check failures/JSON validity as well as latency.

@@ -26,7 +26,7 @@ func main() {
 	lambda.Start(func(ctx context.Context, r ocrbench.Request) (ocrbench.Result, error) {
 		cold := !warm.Swap(true)
 		var prepareMS, inferenceMS int64
-		extractor := awscapture.BedrockExtractor{Transport: &awscapture.Transport{Config: cfg}, Observe: func(stage string, ms int64) {
+		extractor := awscapture.BedrockExtractor{ReasoningEffort: "medium", Transport: &awscapture.Transport{Config: cfg}, Observe: func(stage string, ms int64) {
 			if stage == "prepare" {
 				prepareMS = ms
 			}
