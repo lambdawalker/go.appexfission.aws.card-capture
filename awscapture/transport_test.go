@@ -86,3 +86,25 @@ func TestCleanupDeletesExactListedVersions(t *testing.T) {
 		t.Fatal("original/derivative versions or markers missed", deleted)
 	}
 }
+
+func TestReadInputUsesProductionS3Signing(t *testing.T) {
+	tr := Transport{Config: aws.Config{Region: "us-east-2", Credentials: credentials{}}, Bucket: "test-bucket", HTTP: &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/inputs/session/front image.jpg" || r.URL.RawQuery != "" {
+			t.Fatal(r.URL)
+		}
+		if strings.Contains(r.URL.EscapedPath(), "%2F") || strings.Contains(r.URL.EscapedPath(), "%2520") {
+			t.Fatal("incorrect path escaping", r.URL.EscapedPath())
+		}
+		if r.Header.Get("x-amz-content-sha256") != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" || !strings.Contains(r.Header.Get("Authorization"), "x-amz-content-sha256") {
+			t.Fatal("missing signed payload hash")
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("jpeg"))}, nil
+	})}}
+	b, e := tr.ReadInput(context.Background(), "inputs/session/front image.jpg")
+	if e != nil || string(b) != "jpeg" {
+		t.Fatal(string(b), e)
+	}
+	if _, e = tr.ReadInput(context.Background(), "uploads/other"); e == nil {
+		t.Fatal("non-input key accepted")
+	}
+}
