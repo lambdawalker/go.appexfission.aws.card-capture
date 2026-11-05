@@ -166,3 +166,32 @@ Each benchmark execution prints a timestamped folder under `.deploy/ocr-bench/ru
 CloudWatch collection uses the same AWS profile and requires `logs:FilterLogEvents` and `logs:GetLogEvents` on the benchmark log group. For known request IDs, it retries discovery briefly, then reads a bounded stream window and keeps only that request's START-through-REPORT events. Missing request IDs use a bounded time-window lookup explicitly labeled uncorrelated. Missing permissions, delayed logs, partial windows and collection failures are separate from OCR success/failure; the invocation log tail is retained as a sanitized fallback. Collection time is excluded from measured invocation latency.
 
 Bundles allowlist timing/status fields and known runtime error codes; unknown messages are counted and omitted. They never contain image files, credentials, raw provider diagnostics, complete raw log tails or extracted identity fields. Zip the printed session folder to share it. Original test photos can be supplied separately if needed; review deployment identifiers in the bundle before sharing publicly.
+
+### Compact stitched input
+
+The console runner now reduces each side to fit 1600 × 800 pixels without
+upscaling, preserves its aspect ratio, and stacks front above back on white.
+The resulting JPEG has no edge over 1600 pixels and is limited to 500 KiB.
+It first tries JPEG quality 85, 75, then 65; unusually noisy inputs are reduced
+further, or rejected with a request for tighter crops if the size cap cannot
+be met. Source files are never overwritten. Temporary image files are deleted
+when the runner exits and are excluded from diagnostic bundles.
+
+Only one S3 PUT, one Lambda S3 read, and one model image are used per session.
+The model prompt identifies the front at the top and back at the bottom.
+The production two-image extraction API is unchanged; the benchmark Lambda
+also accepts legacy front/back requests for compatibility.
+
+**Redeploy the benchmark Lambda before using the updated runner:**
+
+```powershell
+.\deploy.bat
+go run ./cmd/ocr-bench --runs 20
+```
+
+Reports add `image_prepare_ms`, `upload_bytes`, and
+`input_layout: "front_above_back"`. Local preparation is outside `upload_ms`
+and `client_ms`; add all three for initial end-to-end latency. Upload happens
+once per session, not once per inference attempt. Compare against earlier
+reports using the same images: fewer bytes and one image can improve speed,
+but reduction can affect small-text accuracy, and model latency is variable.

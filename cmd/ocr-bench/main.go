@@ -158,11 +158,17 @@ func run() (runErr error) {
 	defer os.RemoveAll(imageDir)
 	originalFront, _ := filepath.Abs(*front)
 	originalBack, _ := filepath.Abs(*back)
-	for _, p := range []struct{ source, target string }{{*front, filepath.Join(imageDir, "front.jpg")}, {*back, filepath.Join(imageDir, "back.jpg")}} {
-		if e = prepareImage(p.source, p.target); e != nil {
-			return e
-		}
+	stitched := filepath.Join(imageDir, "stitched.jpg")
+	prepareStart := time.Now()
+	if e = prepareStitched(*front, *back, stitched); e != nil {
+		return e
 	}
+	imagePrepareMS := time.Since(prepareStart).Milliseconds()
+	info, e := os.Stat(stitched)
+	if e != nil {
+		return e
+	}
+	fmt.Printf("Prepared front + back: %.1f KiB (one JPEG)\n", float64(info.Size())/1024)
 	if *environment != "" {
 		dir := filepath.Join(root, ".deploy", "ocr-bench", *environment)
 		if e = os.MkdirAll(dir, 0700); e != nil {
@@ -173,18 +179,11 @@ func run() (runErr error) {
 			return e
 		}
 	}
-	*front = filepath.Join(imageDir, "front.jpg")
-	*back = filepath.Join(imageDir, "back.jpg")
 	id := make([]byte, 16)
 	if _, e := rand.Read(id); e != nil {
 		return e
 	}
 	prefix := "inputs/" + hex.EncodeToString(id) + "/"
-	for _, p := range []struct{ file, key string }{{*front, "front.jpg"}, {*back, "back.jpg"}} {
-		if _, e := os.Stat(p.file); e != nil {
-			return e
-		}
-	}
 	localStage = "upload"
 	uploadStart := time.Now()
 	uploaded := []string{}
@@ -198,7 +197,7 @@ func run() (runErr error) {
 			}
 		}
 	}()
-	for _, p := range []struct{ file, key string }{{*front, "front.jpg"}, {*back, "back.jpg"}} {
+	for _, p := range []struct{ file, key string }{{stitched, "stitched.jpg"}} {
 		if _, e := aws(ctx, "s3api", "put-object", "--bucket", *bucket, "--key", prefix+p.key, "--body", p.file, "--content-type", "image/jpeg"); e != nil {
 			return e
 		}
@@ -210,7 +209,7 @@ func run() (runErr error) {
 		return e
 	}
 	defer os.RemoveAll(temp)
-	payload, _ := json.Marshal(ocrbench.Request{Front: prefix + "front.jpg", Back: prefix + "back.jpg"})
+	payload, _ := json.Marshal(ocrbench.Request{Stitched: prefix + "stitched.jpg"})
 	request := filepath.Join(temp, "request.json")
 	if e = os.WriteFile(request, payload, 0600); e != nil {
 		return e
@@ -278,7 +277,7 @@ func run() (runErr error) {
 		fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
 	}
 	localStage = "report"
-	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
+	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
 	b, e := json.MarshalIndent(summary, "", "  ")
 	if e != nil {
 		return e

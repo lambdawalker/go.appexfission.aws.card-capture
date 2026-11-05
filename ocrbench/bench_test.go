@@ -25,7 +25,7 @@ func TestRun(t *testing.T) {
 		held = append(held, b)
 		return b, nil
 	}
-	r := Run(context.Background(), Request{"inputs/f", "inputs/b"}, read, extractor{})
+	r := Run(context.Background(), Request{Front: "inputs/f", Back: "inputs/b"}, read, extractor{})
 	if !r.Success || r.Error != "" {
 		t.Fatal(r)
 	}
@@ -38,7 +38,7 @@ func TestRun(t *testing.T) {
 	}
 }
 func TestInvalidInputNeverReads(t *testing.T) {
-	for _, req := range []Request{{"../front", "inputs/b"}, {"inputs/f", "inputs/f"}, {"inputs/../f", "inputs/b"}} {
+	for _, req := range []Request{{Front: "../front", Back: "inputs/b"}, {Front: "inputs/f", Back: "inputs/f"}, {Front: "inputs/../f", Back: "inputs/b"}} {
 		r := Run(context.Background(), req, func(context.Context, string) ([]byte, error) { t.Fatal("read"); return nil, nil }, extractor{})
 		if r.Error != "invalid_input" {
 			t.Fatal(r)
@@ -46,8 +46,46 @@ func TestInvalidInputNeverReads(t *testing.T) {
 	}
 }
 func TestFailureRedacted(t *testing.T) {
-	r := Run(context.Background(), Request{"inputs/f", "inputs/b"}, func(context.Context, string) ([]byte, error) { return []byte{1}, nil }, extractor{true})
+	r := Run(context.Background(), Request{Front: "inputs/f", Back: "inputs/b"}, func(context.Context, string) ([]byte, error) { return []byte{1}, nil }, extractor{true})
 	if r.Success || r.Error != "extraction_failed" {
 		t.Fatal(r)
+	}
+}
+
+type stitchedExtractor struct{ t *testing.T }
+
+func (x stitchedExtractor) Extract(context.Context, []capture.CardImage) (capture.CardData, error) {
+	x.t.Fatal("pair extraction used")
+	return capture.CardData{}, nil
+}
+func (x stitchedExtractor) ExtractStitched(_ context.Context, b []byte) (capture.CardData, error) {
+	if len(b) != 3 {
+		x.t.Fatal("missing image")
+	}
+	return capture.CardData{}, nil
+}
+func TestStitchedReadsOnceAndClears(t *testing.T) {
+	calls := 0
+	data := []byte{1, 2, 3}
+	r := Run(context.Background(), Request{Stitched: "inputs/stitched.jpg"}, func(_ context.Context, key string) ([]byte, error) {
+		calls++
+		if key != "inputs/stitched.jpg" {
+			t.Fatal(key)
+		}
+		return data, nil
+	}, stitchedExtractor{t})
+	if !r.Success || calls != 1 {
+		t.Fatal(r, calls)
+	}
+	for _, b := range data {
+		if b != 0 {
+			t.Fatal("not cleared")
+		}
+	}
+	for _, req := range []Request{{Stitched: "../bad"}, {Stitched: "inputs/s", Front: "inputs/f"}} {
+		r = Run(context.Background(), req, func(context.Context, string) ([]byte, error) { t.Fatal("read invalid request"); return nil, nil }, stitchedExtractor{t})
+		if r.Error != "invalid_input" {
+			t.Fatal(r)
+		}
 	}
 }
