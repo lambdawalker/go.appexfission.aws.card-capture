@@ -168,7 +168,11 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
-	fmt.Printf("Prepared front + back: %.1f KiB (one JPEG)\n", float64(info.Size())/1024)
+	imageConfig, e := uploadedImageConfig(stitched)
+	if e != nil {
+		return e
+	}
+	fmt.Printf("Prepared front + back: %d x %d pixels, grayscale, %.1f KiB (one JPEG)\n", imageConfig.Width, imageConfig.Height, float64(info.Size())/1024)
 	if *environment != "" {
 		dir := filepath.Join(root, ".deploy", "ocr-bench", *environment)
 		if e = os.MkdirAll(dir, 0700); e != nil {
@@ -277,7 +281,7 @@ func run() (runErr error) {
 		fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
 	}
 	localStage = "report"
-	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
+	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "upload_width_px": imageConfig.Width, "upload_height_px": imageConfig.Height, "input_color_mode": "grayscale", "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
 	b, e := json.MarshalIndent(summary, "", "  ")
 	if e != nil {
 		return e

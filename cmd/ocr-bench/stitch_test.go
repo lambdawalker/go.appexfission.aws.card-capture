@@ -40,16 +40,31 @@ func TestStitchedBoundsSizeAndOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stat.Size() > stitchedMaxBytes || im.Bounds().Dx() > 1600 || im.Bounds().Dy() > 1600 {
+	if stat.Size() > stitchedMaxBytes || im.Bounds().Dx() > 1200 || im.Bounds().Dy() > 1200 {
 		t.Fatal(stat.Size(), im.Bounds())
 	}
-	r, _, b, _ := im.At(im.Bounds().Dx()/2, 10).RGBA()
-	if r <= b {
-		t.Fatal("front must be top")
+	if im.Bounds().Dx() != 960 || im.Bounds().Dy() != 1200 {
+		t.Fatal("unexpected dimensions", im.Bounds())
 	}
-	r, _, b, _ = im.At(im.Bounds().Dx()/2, im.Bounds().Dy()-10).RGBA()
-	if b <= r {
-		t.Fatal("back must be bottom")
+	cfg, err := uploadedImageConfig(out)
+	if err != nil || cfg.Width != im.Bounds().Dx() || cfg.Height != im.Bounds().Dy() {
+		t.Fatal("reported dimensions differ from uploaded JPEG", cfg, err)
+	}
+	frontGray := color.GrayModel.Convert(im.At(im.Bounds().Dx()/2, 10)).(color.Gray).Y
+	backGray := color.GrayModel.Convert(im.At(im.Bounds().Dx()/2, im.Bounds().Dy()-10)).(color.Gray).Y
+	if frontGray <= backGray {
+		t.Fatal("front must be top, back bottom")
+	}
+	if _, ok := im.(*image.Gray); !ok {
+		t.Fatal("JPEG must use grayscale encoding")
+	}
+	for y := 0; y < im.Bounds().Dy(); y += 37 {
+		for x := 0; x < im.Bounds().Dx(); x += 37 {
+			r, g, b, _ := im.At(x, y).RGBA()
+			if r != g || g != b {
+				t.Fatal("colored output pixel")
+			}
+		}
 	}
 	if err := prepareStitched(out, out, out); err == nil {
 		t.Fatal("overwrote source")

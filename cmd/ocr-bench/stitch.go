@@ -68,7 +68,7 @@ func prepareStitched(front, back, out string) error {
 			return err
 		}
 		b := im.Bounds()
-		scale := min(1.0, min(1600.0/float64(b.Dx()), 800.0/float64(b.Dy())))
+		scale := min(1.0, min(1200.0/float64(b.Dx()), 600.0/float64(b.Dy())))
 		sides = append(sides, resizeBench(im, max(1, int(float64(b.Dx())*scale)), max(1, int(float64(b.Dy())*scale))))
 	}
 	canvas := image.NewRGBA(image.Rect(0, 0, max(sides[0].Bounds().Dx(), sides[1].Bounds().Dx()), sides[0].Bounds().Dy()+sides[1].Bounds().Dy()))
@@ -80,9 +80,12 @@ func prepareStitched(front, back, out string) error {
 		y += side.Bounds().Dy()
 	}
 	for {
+		// Encode a single luminance channel, retaining shades for antialiased text.
+		gray := image.NewGray(canvas.Bounds())
+		draw.Draw(gray, gray.Bounds(), canvas, canvas.Bounds().Min, draw.Src)
 		for _, quality := range []int{85, 75, 65} {
 			var encoded bytes.Buffer
-			if err := jpeg.Encode(&encoded, canvas, &jpeg.Options{Quality: quality}); err != nil {
+			if err := jpeg.Encode(&encoded, gray, &jpeg.Options{Quality: quality}); err != nil {
 				return err
 			}
 			if encoded.Len() <= stitchedMaxBytes {
@@ -104,4 +107,15 @@ func prepareStitched(front, back, out string) error {
 		}
 		canvas = resizeBench(canvas, max(1, w*4/5), max(1, h*4/5))
 	}
+}
+
+// uploadedImageConfig reports the actual encoded dimensions, including any
+// byte-limit fallback resizing, rather than the configured maximum.
+func uploadedImageConfig(path string) (image.Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return image.Config{}, err
+	}
+	defer f.Close()
+	return jpeg.DecodeConfig(f)
 }
