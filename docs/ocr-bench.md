@@ -169,9 +169,9 @@ Bundles allowlist timing/status fields and known runtime error codes; unknown me
 
 ### Compact stitched input
 
-The console runner now reduces each side to fit 1600 × 800 pixels without
-upscaling, preserves its aspect ratio, and stacks front above back on white.
-The resulting JPEG has no edge over 1600 pixels and is limited to 500 KiB.
+The console runner now reduces each side to fit 1200 × 600 pixels without
+upscaling, preserves its aspect ratio, and stacks front above back on white, and converts to grayscale (shades of gray, not a binary threshold).
+The resulting JPEG has no edge over 1200 pixels and is limited to 500 KiB.
 It first tries JPEG quality 85, 75, then 65; unusually noisy inputs are reduced
 further, or rejected with a request for tighter crops if the size cap cannot
 be met. Source files are never overwritten. Temporary image files are deleted
@@ -189,9 +189,15 @@ also accepts legacy front/back requests for compatibility.
 go run ./cmd/ocr-bench --runs 20
 ```
 
-Reports add `image_prepare_ms`, `upload_bytes`, and
+Reports add `image_prepare_ms`, `upload_bytes`, `upload_width_px`,
+`upload_height_px`, `input_color_mode: "grayscale"`, and
 `input_layout: "front_above_back"`. Local preparation is outside `upload_ms`
 and `client_ms`; add all three for initial end-to-end latency. Upload happens
 once per session, not once per inference attempt. Compare against earlier
 reports using the same images: fewer bytes and one image can improve speed,
 but reduction can affect small-text accuracy, and model latency is variable.
+
+The width and height fields describe the actual uploaded JPEG after any size
+fallback, not the 1200 × 1200 maximum. Smaller photos are not upscaled.
+These console preparation/report changes require pulling the updated runner;
+the existing stitched-input Lambda remains compatible.
