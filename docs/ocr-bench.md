@@ -152,3 +152,17 @@ The HTML explorer supports hierarchy, search, filters and artifact details. JSON
 Wizard-owned bootstrap state buckets are included only with matching account/region/identity receipts and a scoped head-bucket check. Operator-supplied shared state buckets are external dependencies and are not claimed. No application dashboard, DNS/GitHub inventory expansion or cross-feature aggregation is added to this library.
 
 Taggable benchmark resources additionally expose standard `ic:owner`, `ic:feature` and `ic:managed-by` tags for compatibility with host reporting. Untaggable child ownership is assigned only within this dedicated feature stack. The existing `preview.sh` offline full-feature catalog remains separate: its illustrative/mock inventory never proves deployment.
+
+### Per-session local/cloud diagnostic bundles
+
+Each benchmark execution prints a timestamped folder under `.deploy/ocr-bench/runs/<timestamp>/`. Keep the whole folder when requesting debugging help:
+
+- `manifest.json`, `summary.json`: session identity, requested repetitions and final benchmark results.
+- `local/setup.json`, `local/completion.json`: selected deployment settings and the local stage/outcome (including setup failures before invocation).
+- `attempt-NNN/local/invoke.json`: client timing, CLI exit status, invocation HTTP status and safe diagnostic.
+- `attempt-NNN/cloud/result.json`: the Lambda's benchmark timings/result.
+- `attempt-NNN/cloud/logs.json`: sanitized CloudWatch evidence, source, request ID, collection status and omitted-message count.
+
+CloudWatch collection uses the same AWS profile and requires `logs:FilterLogEvents` and `logs:GetLogEvents` on the benchmark log group. For known request IDs, it retries discovery briefly, then reads a bounded stream window and keeps only that request's START-through-REPORT events. Missing request IDs use a bounded time-window lookup explicitly labeled uncorrelated. Missing permissions, delayed logs, partial windows and collection failures are separate from OCR success/failure; the invocation log tail is retained as a sanitized fallback. Collection time is excluded from measured invocation latency.
+
+Bundles allowlist timing/status fields and known runtime error codes; unknown messages are counted and omitted. They never contain image files, credentials, raw provider diagnostics, complete raw log tails or extracted identity fields. Zip the printed session folder to share it. Original test photos can be supplied separately if needed; review deployment identifiers in the bundle before sharing publicly.
