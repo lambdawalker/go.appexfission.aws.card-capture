@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -203,4 +204,34 @@ func (t *Transport) Send(ctx context.Context, job capture.Job) error {
 		return errAWS
 	}
 	return nil
+}
+
+// ReadInput reads a current benchmark input through the same S3 signing path as production.
+// Production evidence continues to use Read with its pinned object version.
+func (t *Transport) ReadInput(ctx context.Context, key string) ([]byte, error) {
+	if !strings.HasPrefix(key, "inputs/") || strings.Contains(key, "..") || len(key) > 512 {
+		return nil, errAWS
+	}
+	r, e := t.request(ctx, "s3", http.MethodGet, t.objectURL(key, nil), nil, nil)
+	if e != nil {
+		return nil, e
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		var body struct{ Code string }
+		_ = xml.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
+		code := "Unknown"
+		switch body.Code {
+		case "AccessDenied", "SignatureDoesNotMatch", "InvalidRequest", "NoSuchKey", "NoSuchBucket", "AuthorizationHeaderMalformed", "ExpiredToken":
+			code = body.Code
+		}
+		slog.Warn("capture.input_read_failed", "http_status", r.StatusCode, "code", code)
+		return nil, errAWS
+	}
+	b, e := io.ReadAll(io.LimitReader(r.Body, capture.MaxBytes+1))
+	if e != nil || int64(len(b)) > capture.MaxBytes {
+		clear(b)
+		return nil, errAWS
+	}
+	return b, nil
 }

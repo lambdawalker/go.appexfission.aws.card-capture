@@ -48,7 +48,7 @@ func invocationTail(meta []byte) (string, []byte, int) {
 func safeLogEvents(lines []string) ([]map[string]any, int) {
 	events := []map[string]any{}
 	omitted := 0
-	allowed := map[string]bool{"capture.inference_prepared": true, "capture.inference_response": true, "capture.inference_failed": true, "capture.work_finished": true, "capture.extraction_result": true}
+	allowed := map[string]bool{"capture.input_read_failed": true, "capture.inference_prepared": true, "capture.inference_response": true, "capture.inference_failed": true, "capture.work_finished": true, "capture.extraction_result": true}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -80,6 +80,13 @@ func safeLogEvents(lines []string) ([]map[string]any, int) {
 				switch stage {
 				case "request", "response_envelope", "card_json":
 					event["stage"] = stage
+				}
+			}
+			var code string
+			if json.Unmarshal(raw["code"], &code) == nil {
+				switch code {
+				case "AccessDenied", "SignatureDoesNotMatch", "InvalidRequest", "NoSuchKey", "NoSuchBucket", "AuthorizationHeaderMalformed", "ExpiredToken", "Unknown":
+					event["code"] = code
 				}
 			}
 			events = append(events, event)
