@@ -183,15 +183,16 @@ func run() (runErr error) {
 	failed := 0
 	progress := newBenchProgress(len(fixtures) * *runs)
 	defer func() {
+		status := "Finished"
 		if runErr != nil && progress.passed+progress.failed < progress.total {
-			progress.finish("Stopped")
+			status = "Stopped"
 		}
+		progress.finish(status)
 	}()
 	for _, item := range fixtures {
-		progress.clear()
 		itemBundle := bundle
 		if datasetMode {
-			fmt.Println("Validating fixture", item.name)
+			progress.logf("Validating fixture %s", item.name)
 			itemBundle = filepath.Join(bundle, item.name)
 		}
 		err := func(bundle string) error {
@@ -217,7 +218,7 @@ func run() (runErr error) {
 			if e != nil {
 				return e
 			}
-			fmt.Printf("Prepared front + back: %d x %d pixels, grayscale, %.1f KiB (one JPEG)\n", imageConfig.Width, imageConfig.Height, float64(info.Size())/1024)
+			progress.logf("Prepared front + back: %d x %d pixels, grayscale, %.1f KiB (one JPEG)\n", imageConfig.Width, imageConfig.Height, float64(info.Size())/1024)
 			if !datasetMode && *environment != "" {
 				dir := filepath.Join(root, ".deploy", "ocr-bench", *environment)
 				if e = os.MkdirAll(dir, 0700); e != nil {
@@ -237,18 +238,17 @@ func run() (runErr error) {
 			uploadStart := time.Now()
 			uploaded := []string{}
 			defer func() {
-				progress.clear()
 				for _, key := range uploaded {
 					cleanup, done := context.WithTimeout(context.Background(), 15*time.Second)
-					_, e := aws(cleanup, "s3api", "delete-object", "--bucket", *bucket, "--key", prefix+key)
+					_, e := progress.aws(cleanup, "s3api", "delete-object", "--bucket", *bucket, "--key", prefix+key)
 					done()
 					if e != nil {
-						fmt.Fprintln(os.Stderr, "Input cleanup incomplete; one-day lifecycle remains as fallback")
+						progress.print(os.Stderr, "Input cleanup incomplete; one-day lifecycle remains as fallback")
 					}
 				}
 			}()
 			for _, p := range []struct{ file, key string }{{stitched, "stitched.jpg"}} {
-				if _, e := aws(ctx, "s3api", "put-object", "--bucket", *bucket, "--key", prefix+p.key, "--body", p.file, "--content-type", "image/jpeg"); e != nil {
+				if _, e := progress.aws(ctx, "s3api", "put-object", "--bucket", *bucket, "--key", prefix+p.key, "--body", p.file, "--content-type", "image/jpeg"); e != nil {
 					return e
 				}
 				uploaded = append(uploaded, p.key)
@@ -333,29 +333,28 @@ func run() (runErr error) {
 				if e = bundleJSON(filepath.Join(attemptDir, "cloud", "result.json"), r.Result); e != nil {
 					return e
 				}
-				progress.clear()
-				if !progress.interactive {
+				if progress.program == nil {
 					fmt.Printf("Cloud logs: %s\n", cloud.Status)
 				}
 
 				clear(stderr)
 				clear(meta)
 				if r.Diagnostic != nil {
-					fmt.Fprintf(os.Stderr, "Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
+					message := fmt.Sprintf("Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
 					if r.Diagnostic.RequestID != "" {
-						fmt.Fprintf(os.Stderr, " • request %s", r.Diagnostic.RequestID)
+						message += " • request " + r.Diagnostic.RequestID
 					}
-					fmt.Fprintln(os.Stderr)
+					progress.print(os.Stderr, message)
 				}
 
 				passed := r.Success && (!datasetMode || (r.Validation != nil && r.Validation.Passed))
 				if datasetMode && !passed {
 					validationFailures++
 					if r.Validation != nil {
-						fmt.Printf("Fixture %s scored %.2f%% (minimum %.2f%%). Mismatched fields: %v\n",
+						progress.logf("Fixture %s scored %.2f%% (minimum %.2f%%). Mismatched fields: %v\n",
 							item.name, r.Validation.Similarity, *minSimilarity, r.Validation.Mismatches)
 					} else if r.Success {
-						fmt.Fprintln(os.Stderr, "Validation result missing. Redeploy the OCR benchmark Lambda.")
+						progress.print(os.Stderr, "Validation result missing. Redeploy the OCR benchmark Lambda.")
 					}
 				}
 				samples = append(samples, r)
@@ -367,7 +366,7 @@ func run() (runErr error) {
 					}
 				}
 				progress.record(passed)
-				if !progress.interactive {
+				if progress.program == nil {
 					fmt.Printf("%d/%d passed=%t cold=%t client=%dms error=%s\n", i+1, *runs, passed, r.ColdStart, r.ClientMS, r.Error)
 				}
 			}
@@ -388,7 +387,7 @@ func run() (runErr error) {
 			return fmt.Errorf("benchmark input %q: %w", item.name, err)
 		}
 	}
-	progress.finish("Finished")
+	progress.show("Writing report")
 	summary := perFixture[0]
 	if datasetMode {
 		summary = map[string]any{"schema": 1, "fixtures": perFixture, "fixture_count": len(fixtures), "min_similarity_pct": *minSimilarity, "validation_failures": failed, "validation_passes": len(fixtures)**runs - failed}
@@ -403,7 +402,7 @@ func run() (runErr error) {
 	if e = bundleJSON(filepath.Join(bundle, "summary.json"), summary); e != nil {
 		return e
 	}
-	fmt.Println("Report:", *report)
+	progress.logf("Report: %s", *report)
 	if failed != 0 {
 		return fmt.Errorf("%d benchmark runs failed; see report", failed)
 	}
