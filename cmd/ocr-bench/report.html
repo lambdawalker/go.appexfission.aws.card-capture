@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR benchmark report</title>
+<style>
+:root{color-scheme:light;--ink:#17263a;--muted:#52647a;--line:#dce5ef;--blue:#2862c5;--teal:#007f76}
+*{box-sizing:border-box}
+body{margin:0;background:#f2f6fb;color:var(--ink);font:15px/1.55 system-ui,sans-serif}
+main{max-width:1120px;margin:auto;padding:36px 20px}
+h1,h2,h3,p{margin:0} h1{font-size:clamp(1.8rem,5vw,2.75rem);letter-spacing:-.04em}
+header p,.muted{color:var(--muted)} header{margin-bottom:24px}
+.eyebrow{font-size:.78rem;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--blue)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px}
+.card,section{background:white;border:1px solid var(--line);border-radius:14px;padding:18px}
+.card strong{display:block;font-size:1.6rem;font-variant-numeric:tabular-nums}
+section{margin-bottom:16px} summary{cursor:pointer;font-weight:700}
+.details{margin-top:14px}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;color:var(--muted)}
+.key::before{content:"";display:inline-block;width:.75em;height:.75em;margin-right:.4em;border-radius:2px;background:var(--blue)}
+.key.inference::before{background:var(--teal)}
+.chart{display:grid;gap:8px;margin:12px 0 18px}
+.row{display:grid;grid-template-columns:3rem minmax(0,1fr) 5rem;gap:8px;align-items:center}
+.bars{display:grid;gap:3px}
+progress{appearance:none;width:100%;height:7px;border:0;border-radius:10px;overflow:hidden;background:#e9eff7;color:var(--blue)}
+progress::-webkit-progress-bar{background:#e9eff7}
+progress::-webkit-progress-value{background:var(--blue)}
+progress::-moz-progress-bar{background:var(--blue)}
+progress.inference::-webkit-progress-value{background:var(--teal)}
+progress.inference::-moz-progress-bar{background:var(--teal)}
+.scroll{overflow-x:auto} table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
+.bad{color:#a32232}.ok{color:#006b53}
+</style>
+</head>
+<body>
+<main>
+<header><div class="eyebrow">Attestra · Card capture</div><h1>OCR benchmark report</h1><p>Latency and extraction results across {{len .Fixtures}} input sets.</p></header>
+<div class="cards">
+  <div class="card"><span>Successful extractions</span><strong>{{.Succeeded}} / {{.Attempts}}</strong></div>
+  {{if .Dataset}}<div class="card"><span>Validation passed</span><strong>{{.ValidationPasses}}</strong></div>
+  <div class="card"><span>Validation failed</span><strong>{{.ValidationFailures}}</strong></div>{{end}}
+  <div class="card"><span>Client p50</span><strong>{{if .Succeeded}}{{ms .P50}}{{else}}—{{end}}</strong></div>
+  <div class="card"><span>Client p95</span><strong>{{if .Succeeded}}{{ms .P95}}{{else}}—{{end}}</strong></div>
+</div>
+<p class="legend"><span class="key">Client invocation</span><span class="key inference">Model inference</span><span>Shared scale up to {{ms .Scale}}</span></p>
+{{range $index, $fixture := .Fixtures}}
+<section>
+<details {{if eq $index 0}}open{{end}}>
+<summary>{{.Name}} · {{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</summary>
+<div class="details">
+<p class="muted">{{.Width}} × {{.Height}} px · {{.Bytes}} bytes · local preparation {{ms .PrepareMS}} · upload {{ms .UploadMS}}</p>
+<div class="chart" aria-label="Latency by run">
+{{range $i, $run := .Runs}}
+<div class="row"><span>#{{next $i}}</span><div class="bars">
+<progress max="{{$.Scale}}" value="{{$run.ClientMS}}" aria-label="Client invocation: {{ms $run.ClientMS}}"></progress>
+<progress class="inference" max="{{$.Scale}}" value="{{$run.InferenceMS}}" aria-label="Model inference: {{ms $run.InferenceMS}}"></progress>
+</div><span>{{ms $run.ClientMS}}</span></div>
+{{end}}
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Run</th><th>Start</th><th>Client</th><th>Inference</th><th>Lambda total</th><th>Result</th><th>Details</th></tr></thead>
+<tbody>{{range $i, $run := .Runs}}
+<tr><td>{{next $i}}</td><td>{{if $run.ColdStart}}Cold{{else}}Warm{{end}}</td><td>{{ms $run.ClientMS}}</td><td>{{ms $run.InferenceMS}}</td><td>{{ms $run.TotalMS}}</td>
+<td class="{{if and $run.Success (or (not $run.Validation) $run.Validation.Passed)}}ok{{else}}bad{{end}}">{{.Status}}</td>
+<td>{{with .Validation}}{{range .Mismatches}}<div>{{.}}</div>{{end}}{{end}}{{with .Diagnostic}}{{.Message}}{{else}}{{.Error}}{{end}}</td></tr>
+{{end}}</tbody></table></div>
+</div>
+</details>
+</section>
+{{end}}
+<p class="muted">Client percentiles include successful extractions. Preparation and upload are measured separately.</p>
+</main>
+</body>
+</html>
