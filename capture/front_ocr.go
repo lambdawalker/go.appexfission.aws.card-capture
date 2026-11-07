@@ -80,8 +80,8 @@ func (s Service) workFrontOCR(ctx context.Context, r Record, generation int64) e
 		if r.ExtractionAttempts < 2 {
 			r.ExtractionAttempts++
 		}
-		if before.ExtractionAttempts == 1 && r.Extraction.Status == "pending" {
-			r.Extraction = &Extraction{Status: "retrying"}
+		if before.ExtractionAttempts == 1 && !r.Extraction.Retrying {
+			r.Extraction = &Extraction{Status: "pending", Retrying: true}
 		}
 		switch err := s.Store.Swap(ctx, before, r, false); err {
 		case ErrConflict:
@@ -126,7 +126,7 @@ func (s Service) workFrontOCR(ctx context.Context, r Record, generation int64) e
 		case attempt == 2:
 			next.Extraction = &Extraction{Status: "failed", Error: "extraction_unavailable"}
 		default:
-			next.Extraction = &Extraction{Status: "retrying"}
+			next.Extraction = &Extraction{Status: "pending", Retrying: true}
 			next.FrontOCRDue = now
 		}
 		if err := s.Store.Swap(ctx, current, next, false); err != ErrConflict {
