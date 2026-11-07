@@ -79,14 +79,21 @@ func recordItem(r capture.Record) (map[string]types.AttributeValue, error) {
 	if e != nil {
 		return nil, e
 	}
-	if r.Work != "" {
-		m["work"] = &types.AttributeValueMemberS{Value: r.Work}
-		m["due"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(r.Due, 10)}
+	if job, due := nextJob(r); job.Work != "" {
+		m["work"] = &types.AttributeValueMemberS{Value: job.Work}
+		m["due"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(due, 10)}
 	}
 	if r.Work == "" {
 		m["ttl"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(r.TTL, 10)}
 	}
 	return m, nil
+}
+func nextJob(r capture.Record) (capture.Job, int64) {
+	if r.FrontOCRDue != 0 && (r.State == "uploading" || r.State == "finalizing" || r.State == "ready") &&
+		(r.Work == "" || r.FrontOCRDue < r.Due) {
+		return capture.Job{Owner: r.Owner, ID: r.ID, Generation: r.FrontOCRGeneration, Work: "front-ocr"}, r.FrontOCRDue
+	}
+	return capture.Job{Owner: r.Owner, ID: r.ID, Generation: r.Generation, Work: r.Work}, r.Due
 }
 func conditional(e error) error {
 	var conflict *types.TransactionCanceledException
@@ -135,10 +142,12 @@ func swapWrites(before, after capture.Record, ready bool) ([]types.TransactWrite
 	}
 	writes := []types.TransactWriteItem{{Put: &types.Put{Item: m, ConditionExpression: aws.String("Revision = :revision"), ExpressionAttributeValues: map[string]types.AttributeValue{":revision": &types.AttributeValueMemberN{Value: strconv.FormatInt(before.Revision, 10)}}}}}
 	if ready {
+		manifest := after
+		manifest.Extraction, manifest.FrontOCRAsset = nil, nil
 		event, e := item("READY#"+ownerKey(after.Owner)+"#"+after.ID, struct {
 			Kind     string
 			Manifest capture.Record
-		}{"capture.ready", after})
+		}{"capture.ready", manifest})
 		if e != nil {
 			return nil, e
 		}
@@ -179,9 +188,21 @@ func (s *Store) Swap(ctx context.Context, before, after capture.Record, ready bo
 		return conditional(e)
 	}
 	// Persist intent before sending; the scheduled sweep recovers a lost send.
-	if s.Send != nil && (after.Work == "validate" || after.Work == "extract") && after.LeaseUntil == 0 && after.Due <= time.Now().Unix() {
-		if sendErr := s.Send(ctx, capture.Job{Owner: after.Owner, ID: after.ID, Generation: after.Generation, Work: after.Work}); sendErr != nil {
-			slog.Warn("capture.immediate_dispatch_failed", "capture_id", after.ID, "work", after.Work)
+	if s.Send != nil {
+		now := time.Now().Unix()
+		jobs := []capture.Job{}
+		if (after.Work == "validate" || after.Work == "extract") && after.LeaseUntil == 0 && after.Due <= now {
+			jobs = append(jobs, capture.Job{Owner: after.Owner, ID: after.ID, Generation: after.Generation, Work: after.Work})
+		}
+		if after.FrontOCRDue != 0 && after.FrontOCRDue <= now &&
+			(after.State == "uploading" || after.State == "finalizing" || after.State == "ready") &&
+			(before.FrontOCRDue != after.FrontOCRDue || before.FrontOCRGeneration != after.FrontOCRGeneration) {
+			jobs = append(jobs, capture.Job{Owner: after.Owner, ID: after.ID, Generation: after.FrontOCRGeneration, Work: "front-ocr"})
+		}
+		for _, job := range jobs {
+			if err := s.Send(ctx, job); err != nil {
+				slog.Warn("capture.immediate_dispatch_failed", "capture_id", after.ID, "work", job.Work)
+			}
 		}
 	}
 	return nil
@@ -190,7 +211,7 @@ func (s *Store) Swap(ctx context.Context, before, after capture.Record, ready bo
 // Pending is the durable-intent sweep: the record and work index update atomically.
 // A lost queue send/ack cannot lose intent. Duplicate deliveries are fenced by Work.
 func (s *Store) Pending(ctx context.Context, now int64, send func(capture.Job) error) error {
-	for _, work := range []string{"validate", "extract", "cleanup"} {
+	for _, work := range []string{"validate", "extract", "cleanup", "front-ocr"} {
 		var cursor map[string]types.AttributeValue
 		for pages := 0; pages < 10; pages++ {
 			out, e := s.DB.Query(ctx, &dynamodb.QueryInput{TableName: aws.String(s.Table), IndexName: aws.String("work-due"), KeyConditionExpression: aws.String("#work = :work AND due <= :now"), ExpressionAttributeNames: map[string]string{"#work": "work"}, ExpressionAttributeValues: map[string]types.AttributeValue{":work": &types.AttributeValueMemberS{Value: work}, ":now": &types.AttributeValueMemberN{Value: strconv.FormatInt(now, 10)}}, ExclusiveStartKey: cursor, Limit: aws.Int32(100)})
@@ -202,7 +223,8 @@ func (s *Store) Pending(ctx context.Context, now int64, send func(capture.Job) e
 				if e = attributevalue.UnmarshalMap(m, &r); e != nil {
 					return e
 				}
-				if e = send(capture.Job{Owner: r.Owner, ID: r.ID, Generation: r.Generation, Work: r.Work}); e != nil {
+				job, _ := nextJob(r)
+				if e = send(job); e != nil {
 					return e
 				}
 			}
