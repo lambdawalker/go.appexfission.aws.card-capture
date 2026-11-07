@@ -30,7 +30,7 @@ type Options struct {
 	Integration                       map[string]pulumi.StringInput
 }
 type Storage struct {
-	Table                  *dynamodb.Table
+	Table, ReportsTable    *dynamodb.Table
 	Bucket                 *s3.BucketV2
 	Queue, DeadLetterQueue *sqs.Queue
 	Versioning             *s3.BucketVersioningV2

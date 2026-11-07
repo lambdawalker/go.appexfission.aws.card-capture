@@ -49,6 +49,8 @@ type Record struct {
 	FrontOCRAsset         *Asset            `json:"-"`
 	FrontOCRDue           int64             `json:"-"`
 	FrontOCRGeneration    int64             `json:"-"`
+	ComparisonReview      *ReviewedCard     `json:"-"`
+	ComparisonSaved       bool              `json:"-"`
 	ExtractionAttempts    int               `json:"-"`
 	ID                    string            `json:"capture_id" dynamodbav:"CaptureID"`
 	Owner                 string            `json:"-"`

@@ -2,7 +2,6 @@ package capture
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -181,7 +180,6 @@ func (s Service) expireExtraction(ctx context.Context, r Record) error {
 	return s.Store.Swap(ctx, before, r, false)
 }
 func (s Service) finishExtraction(ctx context.Context, r Record, data CardData, err error) error {
-	slog.Info("capture.extraction_result", "capture_id", r.ID, "attempt", r.ExtractionAttempts, "failed", err != nil)
 	before := r
 	r.Revision++
 	r.LeaseUntil = 0
@@ -197,5 +195,24 @@ func (s Service) finishExtraction(ctx context.Context, r Record, data CardData, 
 		r.Extraction = &Extraction{Status: "pending", Retrying: true}
 		r.Due = s.now().Unix()
 	}
-	return s.Store.Swap(ctx, before, r, false)
+	for {
+		if swapErr := s.Store.Swap(ctx, before, r, false); swapErr != ErrConflict {
+			return swapErr
+		}
+		current, loadErr := s.Store.Get(ctx, before.Owner, before.ID)
+		if loadErr != nil {
+			return loadErr
+		}
+		if current.Revision == before.Revision || current.State != before.State ||
+			current.Generation != before.Generation || current.Work != before.Work ||
+			current.LeaseUntil != before.LeaseUntil || current.ExtractionAttempts != before.ExtractionAttempts {
+			return ErrConflict
+		}
+		// A manual review can be saved while the second attempt is running.
+		before = current
+		r.Revision = current.Revision + 1
+		r.Reviewed = current.Reviewed
+		r.ComparisonReview = current.ComparisonReview
+		r.ComparisonSaved = current.ComparisonSaved
+	}
 }

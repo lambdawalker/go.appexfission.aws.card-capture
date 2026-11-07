@@ -88,3 +88,32 @@ func TestFrontOCRIndexProjectionPreservesValidationLane(t *testing.T) {
 		t.Fatalf("wrong projected job: %+v at %d", job, due)
 	}
 }
+
+func TestComparisonUsesFirstReviewAndWaitsForTerminalOCR(t *testing.T) {
+	first := capture.ReviewedCard{Data: capture.CardData{FullName: "  ANA   García ", Address: "Home", DocumentNumber: "0012"}, SavedAt: 10}
+	pending := capture.Record{ID: "sample", State: "ready", Reviewed: &first, Extraction: &capture.Extraction{Status: "pending", Retrying: true}}
+	if write, err := comparisonWrite(capture.Record{}, &pending, "reports"); err != nil || write != nil || pending.ComparisonReview == nil {
+		t.Fatalf("expected pending snapshot, got %v %v", write, err)
+	}
+	final := pending
+	final.Reviewed = &capture.ReviewedCard{Data: capture.CardData{FullName: "Later edit"}, SavedAt: 11}
+	final.Extraction = &capture.Extraction{Status: "complete", Data: capture.CardData{FullName: "ana garcía", DocumentNumber: "0013"}}
+	write, err := comparisonWrite(pending, &final, "reports")
+	if err != nil || write == nil || aws.ToString(write.Put.ConditionExpression) != "attribute_not_exists(id)" ||
+		aws.ToString(write.Put.TableName) != "reports" || !final.ComparisonSaved || final.ComparisonReview != nil {
+		t.Fatalf("expected immutable report write, got %v %v", write, err)
+	}
+	var report capture.ComparisonReport
+	if err := attributevalue.UnmarshalMapWithOptions(write.Put.Item, &report, func(opts *attributevalue.DecoderOptions) { opts.TagKey = "json" }); err != nil {
+		t.Fatal(err)
+	}
+	if report.Submitted != first || report.OCR != final.Extraction.Data ||
+		*report.FieldSimilarity["full_name"] != 1 || *report.FieldSimilarity["document_number"] != .75 ||
+		*report.FieldSimilarity["address"] != 0 || report.FieldSimilarity["birth_date"] != nil ||
+		*report.AverageSimilarity != (1+.75)/3 {
+		t.Fatalf("unexpected comparison: %+v", report)
+	}
+	if write, err := comparisonWrite(final, &final, "reports"); err != nil || write != nil {
+		t.Fatalf("report can be written again: %v %v", write, err)
+	}
+}

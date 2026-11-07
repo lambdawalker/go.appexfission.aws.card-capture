@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"image"
 	"image/jpeg"
-	"log/slog"
 	"time"
 )
 
@@ -36,13 +35,7 @@ func decodeValidatedJPEG(data []byte, a Asset) (image.Image, error) {
 }
 
 // Work is restart-safe. Revision/generation fences stop old workers publishing after cancellation.
-func (s Service) Work(ctx context.Context, job Job) (err error) {
-	started := time.Now()
-	slog.Info("capture.work_started", "capture_id", job.ID, "work", job.Work, "generation", job.Generation)
-	defer func() {
-		// Error text can include storage paths or provider output; only log success/failure.
-		slog.Info("capture.work_finished", "capture_id", job.ID, "work", job.Work, "failed", err != nil, "elapsed_ms", time.Since(started).Milliseconds())
-	}()
+func (s Service) Work(ctx context.Context, job Job) error {
 	r, e := s.Store.Get(ctx, job.Owner, job.ID)
 	if e == ErrNotFound {
 		return nil
@@ -57,7 +50,6 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 		return nil
 	}
 	now := s.now().Unix()
-	slog.Info("capture.work_state", "capture_id", r.ID, "state", r.State, "revision", r.Revision, "due", r.Due, "lease_until", r.LeaseUntil, "extraction_attempts", r.ExtractionAttempts)
 	if r.Due > now || r.LeaseUntil > now {
 		return nil
 	}

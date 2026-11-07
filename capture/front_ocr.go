@@ -2,7 +2,6 @@ package capture
 
 import (
 	"context"
-	"log/slog"
 	"time"
 )
 
@@ -104,7 +103,6 @@ func (s Service) workFrontOCR(ctx context.Context, r Record, generation int64) e
 	if before.ExtractionAttempts < 2 {
 		data, extractionErr = s.readFront(ctx, *r.FrontOCRAsset)
 	}
-	slog.Info("capture.extraction_result", "capture_id", r.ID, "attempt", attempt, "failed", extractionErr != nil)
 	// Upload registration, validation, and manual review may all advance the
 	// record revision while inference is running. Merge only into our lease.
 	for {
