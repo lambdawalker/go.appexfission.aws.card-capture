@@ -16,7 +16,8 @@ type CardData struct {
 	Surnames       string `json:"surnames"`
 	BirthDate      string `json:"birth_date"`
 	DocumentNumber string `json:"document_number"`
-	PersonalNumber string `json:"personal_number"`
+	// PersonalNumber retains its Go name for existing DynamoDB records.
+	PersonalNumber string `json:"issued_identifier"`
 	Address        string `json:"address"`
 	IssueDate      string `json:"issue_date"`
 	ExpiryDate     string `json:"expiry_date"`

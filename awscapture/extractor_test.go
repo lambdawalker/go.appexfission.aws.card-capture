@@ -76,10 +76,10 @@ func TestGemmaRequestUsesBoundedImagesAndSignedMantle(t *testing.T) {
 		if count != 2 {
 			t.Fatal("missing image")
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"full_name\":\"Ana\",\"document_number\":\"000123\"}"}}]}`))}, nil
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"choices":[{"finish_reason":"stop","message":{"content":"{\"full_name\":\"Ana\",\"document_number\":\"000123\",\"issued_identifier\":\"000456\"}"}}]}`))}, nil
 	})}}}
 	d, e := x.Extract(context.Background(), cardImages(t))
-	if e != nil || d.FullName != "Ana" || d.DocumentNumber != "000123" {
+	if e != nil || d.FullName != "Ana" || d.DocumentNumber != "000123" || d.PersonalNumber != "000456" {
 		t.Fatal("response rejected", e)
 	}
 }
