@@ -16,12 +16,11 @@ header p,.muted{color:var(--muted)} header{margin-bottom:24px}
 .card,section{background:white;border:1px solid var(--line);border-radius:14px;padding:18px}
 .card strong{display:block;font-size:1.6rem;font-variant-numeric:tabular-nums}
 section{margin-bottom:16px} summary{cursor:pointer;font-weight:700}
-.details{margin-top:14px}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;color:var(--muted)}
-.key::before{content:"";display:inline-block;width:.75em;height:.75em;margin-right:.4em;border-radius:2px;background:var(--blue)}
-.key.inference::before{background:var(--teal)}
 .chart{display:grid;gap:8px;margin:12px 0 18px}
-.row{display:grid;grid-template-columns:3rem minmax(0,1fr) 5rem;gap:8px;align-items:center}
-.bars{display:grid;gap:3px}
+.row{display:grid;grid-template-columns:2rem minmax(0,1fr);gap:8px;align-items:center}
+.bars{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,10rem);gap:4px 10px;align-items:center}
+.bar-label,.chart-scale{color:var(--muted);font-size:.84rem}
+.chart-scale{text-align:right}
 progress{appearance:none;width:100%;height:7px;border:0;border-radius:10px;overflow:hidden;background:#e9eff7;color:var(--blue)}
 progress::-webkit-progress-bar{background:#e9eff7}
 progress::-webkit-progress-value{background:var(--blue)}
@@ -81,15 +80,17 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <section id="test-{{$index}}" class="test-detail" aria-labelledby="test-title-{{$index}}">
 <h2 id="test-title-{{$index}}">{{.Name}}</h2>
 <p class="muted">{{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</p>
-<p class="legend"><span class="key">Client invocation</span><span class="key inference">Model inference</span><span>Shared scale up to {{ms $.Scale}}</span></p>
 <p class="muted">{{.Width}} × {{.Height}} px · {{.Bytes}} bytes · local preparation {{ms .PrepareMS}} · upload {{ms .UploadMS}}</p>
 <div class="chart" aria-label="Latency by run">
 {{range $i, $run := .Runs}}
 <div class="row"><span>#{{next $i}}</span><div class="bars">
 <progress max="{{$.Scale}}" value="{{$run.ClientMS}}" aria-label="Client invocation: {{ms $run.ClientMS}}"></progress>
+<span class="bar-label">Client invocation · {{ms $run.ClientMS}}</span>
 <progress class="inference" max="{{$.Scale}}" value="{{$run.InferenceMS}}" aria-label="Model inference: {{ms $run.InferenceMS}}"></progress>
-</div><span>{{ms $run.ClientMS}}</span></div>
+<span class="bar-label">Model inference · {{ms $run.InferenceMS}}</span>
+</div></div>
 {{end}}
+<p class="chart-scale">Shared scale up to {{ms $.Scale}}</p>
 </div>
 <div class="scroll"><table>
 <thead><tr><th>Run</th><th>Start</th><th>Client</th><th>Inference</th><th>Lambda total</th><th>Result</th><th>Details</th></tr></thead>
