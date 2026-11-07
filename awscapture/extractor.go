@@ -123,20 +123,39 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "```json\n"), "```"))
 	}
 	if !strings.HasPrefix(text, "{") || len(text) > 8192 {
+		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "object_shape_or_size")
 		return capture.CardData{}, errExtraction
 	}
 	decoder := json.NewDecoder(strings.NewReader(text))
 	decoder.DisallowUnknownFields()
 	var data capture.CardData
-	if decoder.Decode(&data) != nil || !data.Valid() {
-		slog.Warn("capture.inference_failed", "stage", "card_json")
+	if err := decoder.Decode(&data); err != nil {
+		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", cardJSONDecodeReason(err))
+		return capture.CardData{}, errExtraction
+	}
+	if !data.Valid() {
+		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "invalid_card_value")
 		return capture.CardData{}, errExtraction
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
+		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
 		return capture.CardData{}, errExtraction
 	}
 	return data, nil
+}
+
+// Decoder error messages can include model-generated field names. Log only
+// a fixed category so document contents never reach CloudWatch.
+func cardJSONDecodeReason(err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return "wrong_value_type"
+	}
+	if strings.HasPrefix(err.Error(), "json: unknown field ") {
+		return "unknown_field"
+	}
+	return "malformed_json"
 }
 
 // JPEG color images normally decode to YCbCr. Sample concrete pixels to avoid
