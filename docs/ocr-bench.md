@@ -202,9 +202,8 @@ fallback, not the 1200 × 1200 maximum. Smaller photos are not upscaled.
 These console preparation/report changes require pulling the updated runner;
 the existing stitched-input Lambda remains compatible.
 
-The benchmark now requests `reasoning_effort: "medium"`; production extraction
-continues to default to `high`. Redeploy with `.\deploy.bat` before measuring
-this change. Keep images and run count constant when comparing against prior
+The benchmark and the live capture worker request `reasoning_effort: "medium"`.
+Deploy the corresponding backend before measuring this change. Keep images and run count constant when comparing against prior
 reports, and check failures/JSON validity as well as latency.
 
 ### Validate exported fixtures
