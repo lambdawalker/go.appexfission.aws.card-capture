@@ -308,6 +308,9 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 		}
 	}
 	before := r
+	if s.Extractor != nil && r.FrontOCRAsset == nil {
+		startFrontOCR(&r, assets[0], s.now().Unix())
+	}
 	r.Assets = assets
 	r.FinalizeKey = in.OperationKey
 	// Identify the finalized pair independently of subsequent worker revisions.
@@ -323,27 +326,29 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 	return r, nil
 }
 func (s Service) Cancel(ctx context.Context, owner, id string) (Record, error) {
-	r, e := s.Store.Get(ctx, owner, id)
-	if e != nil {
+	for {
+		r, e := s.Store.Get(ctx, owner, id)
+		if e != nil {
+			return r, e
+		}
+		if r.State == "cancelled" || r.State == "expired" {
+			return r, nil
+		}
+		before := r
+		r.State = "cancelled"
+		r.Extraction = nil
+		r.Reviewed = nil
+		r.FrontOCRAsset, r.FrontOCRDue = nil, 0
+		r.Work = "cleanup"
+		r.Due = s.now().Add(UploadLifetime + time.Minute).Unix()
+		r.Generation++
+		r.LeaseUntil = 0
+		r.Revision++
+		if e = s.Store.Swap(ctx, before, r, false); e == ErrConflict {
+			continue
+		}
 		return r, e
 	}
-	if r.State == "cancelled" || r.State == "expired" {
-		return r, nil
-	}
-	before := r
-	r.State = "cancelled"
-	r.Extraction = nil
-	r.Reviewed = nil
-	r.FrontOCRAsset, r.FrontOCRDue = nil, 0
-	r.Work = "cleanup"
-	r.Due = s.now().Add(UploadLifetime + time.Minute).Unix()
-	r.Generation++
-	r.LeaseUntil = 0
-	r.Revision++
-	if e = s.Store.Swap(ctx, before, r, false); e != nil {
-		return Record{}, e
-	}
-	return r, nil
 }
 func (s Service) Retry(ctx context.Context, owner, id, key string) (Record, error) {
 	if !ValidOperation(key) {
