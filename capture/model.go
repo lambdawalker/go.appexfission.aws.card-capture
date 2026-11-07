@@ -46,6 +46,9 @@ type Record struct {
 	DisclosureLanguage    string            `json:"disclosure_language,omitempty"`
 	Extraction            *Extraction       `json:"extraction,omitempty"`
 	Reviewed              *ReviewedCard     `json:"reviewed,omitempty"`
+	FrontOCRAsset         *Asset            `json:"-"`
+	FrontOCRDue           int64             `json:"-"`
+	FrontOCRGeneration    int64             `json:"-"`
 	ExtractionAttempts    int               `json:"-"`
 	ID                    string            `json:"capture_id" dynamodbav:"CaptureID"`
 	Owner                 string            `json:"-"`
