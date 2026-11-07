@@ -319,7 +319,7 @@ func TestFrontOCRStartsBeforeFinalizeAndRetriesImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = m.records[r.ID]
-	if r.Extraction.Status != "retrying" || r.FrontOCRDue != now.Unix() {
+	if !r.Extraction.Retrying || r.FrontOCRDue != now.Unix() {
 		t.Fatal("manual review must be available while immediate retry is queued")
 	}
 	// Finalize and validate the second upload while the retry runs.
