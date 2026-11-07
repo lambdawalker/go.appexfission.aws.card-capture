@@ -68,7 +68,7 @@ func (s Service) Review(ctx context.Context, owner, id string, in ReviewRequest)
 	if r.State == "expired" {
 		return Record{}, ErrExpired
 	}
-	if r.State != "ready" || r.Extraction == nil || (r.Extraction.Status != "complete" && r.Extraction.Status != "failed") {
+	if r.State != "ready" || r.Extraction == nil || (r.Extraction.Status != "complete" && r.Extraction.Status != "failed" && r.Extraction.Status != "retrying") {
 		return Record{}, ErrConflict
 	}
 	// Identical retry after a lost response is safe, without persisting PII in operation checkpoints.
@@ -88,13 +88,13 @@ func (s Service) Review(ctx context.Context, owner, id string, in ReviewRequest)
 }
 
 func (s Service) extract(ctx context.Context, r Record) error {
-	if r.State != "ready" || r.Extraction == nil || r.Extraction.Status != "pending" {
+	if r.State != "ready" || r.Extraction == nil || (r.Extraction.Status != "pending" && r.Extraction.Status != "retrying") {
 		return nil
 	}
 	if s.now().Unix() >= r.DeleteAfter {
 		return s.expireExtraction(ctx, r)
 	}
-	if r.ExtractionAttempts >= 3 {
+	if r.ExtractionAttempts >= 2 {
 		return s.finishExtraction(ctx, r, CardData{}, ErrInvalid)
 	}
 	before := r
@@ -188,12 +188,13 @@ func (s Service) finishExtraction(ctx context.Context, r Record, data CardData, 
 		r.Extraction = &Extraction{Status: "complete", Data: data}
 		r.Work = "cleanup"
 		r.Due = r.DeleteAfter
-	} else if r.ExtractionAttempts >= 3 {
+	} else if r.ExtractionAttempts >= 2 {
 		r.Extraction = &Extraction{Status: "failed", Error: "extraction_unavailable"}
 		r.Work = "cleanup"
 		r.Due = r.DeleteAfter
 	} else {
-		r.Due = s.now().Add(time.Duration(r.ExtractionAttempts) * time.Minute).Unix()
+		r.Extraction = &Extraction{Status: "retrying"}
+		r.Due = s.now().Unix()
 	}
 	return s.Store.Swap(ctx, before, r, false)
 }
