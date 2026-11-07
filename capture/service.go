@@ -200,8 +200,11 @@ func (s Service) Upload(ctx context.Context, owner, id string, in UploadRequest)
 		return UploadReply{}, ErrConflict
 	}
 	sum, e := base64.StdEncoding.DecodeString(in.SHA256)
-	if e != nil || len(sum) != 32 || in.Size < 4 || in.Size > MaxBytes || !ValidOperation(in.OperationKey) || (in.Slot != "front" && in.Slot != "back") {
+	if e != nil || len(sum) != 32 || in.Size < 4 || in.Size > MaxBytes || !ValidOperation(in.OperationKey) || (in.Slot != "front" && in.Slot != "back" && in.Slot != "stitched") {
 		return UploadReply{}, ErrInvalid
+	}
+	if (in.Slot == "stitched" && r.Slots["back"] != "") || (in.Slot == "back" && r.Slots["stitched"] != "") {
+		return UploadReply{}, ErrConflict
 	}
 	var selected *Upload
 	for i := range r.Uploads {
@@ -266,11 +269,15 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 	if r.State != "uploading" || r.Revision != in.Revision {
 		return r, ErrConflict
 	}
-	if len(in.UploadIDs) != 2 || in.UploadIDs["front"] == "" || in.UploadIDs["back"] == "" || !reflect.DeepEqual(r.Slots, in.UploadIDs) {
+	second := "back"
+	if r.Slots["stitched"] != "" {
+		second = "stitched"
+	}
+	if len(in.UploadIDs) != 2 || in.UploadIDs["front"] == "" || in.UploadIDs[second] == "" || !reflect.DeepEqual(r.Slots, in.UploadIDs) {
 		return r, ErrIncomplete
 	}
 	assets := []Asset{}
-	for _, side := range []string{"front", "back"} {
+	for _, side := range []string{"front", second} {
 		found := false
 		for _, u := range r.Uploads {
 			if u.ID == r.Slots[side] {

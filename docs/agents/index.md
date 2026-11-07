@@ -50,3 +50,19 @@ In CloudWatch, find `capture.work_started` and `capture.work_finished` for
 measures the provider request through response headers. Android's `ocr_observed`
 also includes time between status polls and network delay. Repository revisions
 and benchmark runs do not establish the code version or latency in an AWS environment.
+
+
+## Early grayscale upload and stitched evidence
+
+The policy response advertises `stitched_pair_supported` independently of its
+consent hash. A client can register and upload the grayscale `front` immediately,
+then register one color `stitched` JPEG with the front above the back.
+Finalize the exact IDs for both uploads. The worker validates and retains both
+files and sends the stitched image to OCR. Legacy clients can still finalize
+`front` plus `back`. A capture generation cannot mix `back` and `stitched`.
+
+Each registered upload has a unique object key. Successful PUTs remain in the
+private versioned evidence bucket even after a retake clears the selected IDs.
+Only the selected, validated pair is eligible for the current OCR or subsequent
+validation. Retention expiry, cancellation, reset and orphan cleanup still
+remove evidence under their existing rules.

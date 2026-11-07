@@ -112,7 +112,11 @@ func (s Service) extract(ctx context.Context, r Record) error {
 		}
 	}()
 	var extractionErr error
-	for _, side := range []string{"front", "back"} {
+	slots := []string{"front", "back"}
+	if r.Slots["stitched"] != "" {
+		slots = []string{"stitched"}
+	}
+	for _, side := range slots {
 		var asset *Asset
 		for i := range r.Processed {
 			if r.Processed[i].Slot == side {
@@ -141,7 +145,17 @@ func (s Service) extract(ctx context.Context, r Record) error {
 			extractionErr = ErrDisabled
 		} else {
 			bounded, cancel := context.WithTimeout(ctx, 60*time.Second)
-			data, extractionErr = s.Extractor.Extract(bounded, images)
+			if len(images) == 1 && images[0].Slot == "stitched" {
+				if stitched, ok := s.Extractor.(interface {
+					ExtractStitched(context.Context, []byte) (CardData, error)
+				}); ok {
+					data, extractionErr = stitched.ExtractStitched(bounded, images[0].JPEG)
+				} else {
+					extractionErr = ErrDisabled
+				}
+			} else {
+				data, extractionErr = s.Extractor.Extract(bounded, images)
+			}
 			cancel()
 			if extractionErr == nil && !data.Valid() {
 				extractionErr = ErrInvalid

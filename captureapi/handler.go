@@ -98,7 +98,10 @@ func (h Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest)
 		if e != nil {
 			return fail(e), nil
 		}
-		return reply(200, p), nil
+		return reply(200, struct {
+			capture.Policy
+			StitchedPairSupported bool `json:"stitched_pair_supported"`
+		}{p, true}), nil
 	}
 	if method == "GET" && path == "/onboarding/id/status" {
 		r, e := h.Service.Current(ctx, owner)
