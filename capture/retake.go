@@ -39,6 +39,7 @@ func (s Service) Retake(ctx context.Context, owner, id string, in RetakeRequest)
 	before := r
 	r.RetakeKey = in.OperationKey
 	r.State = "uploading"
+	r.ImageRevision = 0
 	r.Slots = map[string]string{}
 	r.Assets, r.Processed = nil, nil
 	r.Extraction, r.Reviewed = nil, nil

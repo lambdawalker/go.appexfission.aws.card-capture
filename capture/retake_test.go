@@ -8,10 +8,13 @@ import (
 func TestRetakeFencesExtractionAndPreservesQuota(t *testing.T) {
 	s, m, _, _, r := extractionFixture(t)
 	account, _ := m.Account(context.Background(), r.Owner)
+	if r.ImageRevision <= 0 || r.ImageRevision >= r.Revision {
+		t.Fatal("worker revisions must preserve the finalized image revision")
+	}
 	oldJob := Job{r.Owner, r.ID, r.Generation, r.Work}
 	request := RetakeRequest{OperationKey: "retake_operation_1", Revision: r.Revision}
 	next, err := s.Retake(context.Background(), r.Owner, r.ID, request)
-	if err != nil || next.ID != r.ID || next.Generation <= r.Generation || next.Extraction != nil || next.State != "uploading" {
+	if err != nil || next.ID != r.ID || next.Generation <= r.Generation || next.ImageRevision != 0 || next.Extraction != nil || next.State != "uploading" {
 		t.Fatal(next, err)
 	}
 	if _, err = s.Retake(context.Background(), r.Owner, r.ID, request); err != nil {

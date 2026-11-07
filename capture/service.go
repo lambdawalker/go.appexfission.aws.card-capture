@@ -296,6 +296,8 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 	before := r
 	r.Assets = assets
 	r.FinalizeKey = in.OperationKey
+	// Identify the finalized pair independently of subsequent worker revisions.
+	r.ImageRevision = r.Revision + 1
 	r.State = "finalizing"
 	r.Work = "validate"
 	r.Due = s.now().Unix()

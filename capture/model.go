@@ -51,6 +51,7 @@ type Record struct {
 	Owner                 string            `json:"-"`
 	EvidenceVersion       int64             `json:"evidence_version"`
 	Revision              int64             `json:"revision"`
+	ImageRevision         int64             `json:"image_revision,omitempty"`
 	PolicySnapshot        *Policy           `json:"policy,omitempty"`
 	ExpectedPolicyVersion string            `json:"-"`
 	PolicyVersion         string            `json:"policy_version"`
