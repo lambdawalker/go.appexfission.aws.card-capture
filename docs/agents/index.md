@@ -58,7 +58,8 @@ The policy response advertises `stitched_pair_supported` independently of its
 consent hash. A client can register and upload the grayscale `front` immediately,
 then call `POST /onboarding/id/captures/{capture_id}/confirm-front` with its
 `upload_id` after the PUT succeeds. Confirmation pins the object version and
-queues OCR immediately. The worker sends just the front image to OCR in grayscale
+queues OCR immediately. Finalization starts front OCR if confirmation was missed.
+The worker sends just the front image to OCR in grayscale
 with a maximum edge of 1600 pixels. Android can upload the color `stitched` JPEG
 and finalize both IDs while OCR runs. The worker validates and retains both
 evidence files. Legacy clients can still finalize `front` plus `back`. A capture
