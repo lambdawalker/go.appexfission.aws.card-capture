@@ -155,13 +155,11 @@ func run() (runErr error) {
 		os.Setenv("AWS_PROFILE", *profile)
 	}
 	os.Setenv("AWS_DEFAULT_REGION", *region)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*120*time.Second*time.Duration(len(fixtures))+time.Minute)
-	defer cancel()
 	if e = bundleJSON(filepath.Join(bundle, "local", "setup.json"), map[string]any{"environment": *environment, "profile": *profile, "region": *region, "bucket": *bucket, "function": *fn, "expected_account": saved.Account, "runs": *runs}); e != nil {
 		return e
 	}
 	localStage = "authentication"
-	identity, e := aws(ctx, "sts", "get-caller-identity", "--output", "json")
+	identity, e := authenticate(*profile)
 	if e != nil {
 		return e
 	}
@@ -172,6 +170,8 @@ func run() (runErr error) {
 	if saved.Account != "" && who.Account != saved.Account {
 		return fmt.Errorf("signed-in AWS account differs from saved deployment")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*120*time.Second*time.Duration(len(fixtures))+time.Minute)
+	defer cancel()
 	perFixture := make([]map[string]any, 0, len(fixtures))
 	failed := 0
 	for _, item := range fixtures {
