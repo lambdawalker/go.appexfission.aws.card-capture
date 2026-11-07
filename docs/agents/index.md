@@ -36,22 +36,6 @@ changes, invalidating older work, and replacement uploads receive a new image
 revision at finalization. Reconcile uncertain responses before retrying. See the
 [retake implementation](../../capture/retake.go).
 
-## OCR timing
-
-The live worker sends two color images to Gemma with `medium` reasoning effort.
-The [isolated benchmark](../ocr-bench.md) also uses medium and can send one
-stitched grayscale image. Compare like-for-like inputs before attributing a
-latency change to reasoning effort.
-
-In CloudWatch, find `capture.work_started` and `capture.work_finished` for
-`work=extract` and the capture ID. Use the invocation context to find
-`capture.inference_prepared` (`elapsed_ms`) and `capture.inference_response`
-(`headers_ms`). Worker duration includes storage and processing. Header timing
-measures the provider request through response headers. Android's `ocr_observed`
-also includes time between status polls and network delay. Repository revisions
-and benchmark runs do not establish the code version or latency in an AWS environment.
-
-
 ## Early grayscale upload and stitched evidence
 
 The policy response advertises `stitched_pair_supported` independently of its
@@ -75,8 +59,23 @@ Only the selected front is eligible for early OCR. Finalization validates the
 selected evidence pair. Retention expiry, cancellation, reset and orphan cleanup still
 remove evidence under their existing rules.
 
-## OCR logging tech debt
+## Administrative OCR comparison reports
 
-Remove the temporary `mock_value` attribute from `capture.inference_field_rejected`
-before processing real documents. It records rejected model values for mock-data
-debugging. Keep the schema field name, JSON type, and rejection reason.
+The capture backend stores one immutable comparison per newly reviewed capture in
+`id-ocr-comparisons`. The record contains the final structured OCR JSON, its status,
+the first submitted review, and similarity for each OCR field. If the first review
+arrives during a retry, the report is written when extraction finishes. A failed OCR
+result contributes blank OCR field values. Subsequent review edits do not modify the report.
+
+Scores use normalized Levenshtein similarity from 0 to 1 over Unicode code points,
+with case ignored and whitespace collapsed. A field missing on one side scores 0.
+Fields blank on both sides have a null score and are excluded from the average.
+If no fields are comparable, the average is null. Origin country is retained with
+the review and excluded from scoring because OCR does not produce that field.
+
+The capture API and worker can insert reports transactionally and have no report-read
+permissions. Set Pulumi's `captureComparisonAdminRoleArn` to the designated AWS
+IAM role ARN and attach the exported `captureComparisonAdminReadPolicy` to that role.
+The table policy denies report reads to other principals and denies all reads when
+no role is configured. The `captureComparisonTable` output names the encrypted table.
+Reports have no automatic expiration and are separate from capture evidence cleanup.

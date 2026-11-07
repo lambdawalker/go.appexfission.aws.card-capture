@@ -8,7 +8,6 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -164,28 +163,16 @@ func TestFrontOCRUsesBoundedGrayscaleJPEG(t *testing.T) {
 	}
 }
 
-func TestCardJSONKeepsValidFieldsAndLogsRejectedMockValues(t *testing.T) {
-	var logs bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logs, nil))
-	data, err := decodeCardJSON(context.Background(), logger,
-		`{"full_name":"Synthetic Person","issued_identifier":"000123","document_number":987654321,"address":{"line":"Synthetic Address"},"expiry_date":"2027","birth_date":"bad\rdate"}`)
+func TestCardJSONKeepsValidFields(t *testing.T) {
+	data, err := decodeCardJSON(`{"full_name":"Synthetic Person","issued_identifier":"000123","document_number":987654321,"address":{"line":"Synthetic Address"},"expiry_date":"2027","birth_date":"bad\rdate"}`)
 	if err != nil || data.FullName != "Synthetic Person" || data.PersonalNumber != "000123" ||
 		data.ExpiryDate != "2027" || data.DocumentNumber != "" || data.Address != "" || data.BirthDate != "" {
 		t.Fatalf("unexpected partial result: %+v %v", data, err)
 	}
-	for _, value := range []string{`"field":"document_number"`, `"json_type":"number"`, `"mock_value":"987654321"`, `"field":"address"`, `"field":"birth_date"`} {
-		if !strings.Contains(logs.String(), value) {
-			t.Errorf("missing diagnostic %s in %s", value, logs.String())
-		}
-	}
-	if strings.Contains(logs.String(), "Synthetic Person") || strings.Contains(logs.String(), "000123") {
-		t.Fatal("valid values should not appear in diagnostics")
-	}
 }
 
 func TestCardJSONRetriesWhenAllRecognizedValuesAreRejected(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if _, err := decodeCardJSON(context.Background(), logger, `{"surnames":["Synthetic Person"]}`); err == nil {
+	if _, err := decodeCardJSON(`{"surnames":["Synthetic Person"]}`); err == nil {
 		t.Fatal("expected an unusable response to fail")
 	}
 }

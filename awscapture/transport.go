@@ -10,7 +10,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -218,14 +217,6 @@ func (t *Transport) ReadInput(ctx context.Context, key string) ([]byte, error) {
 	}
 	defer r.Body.Close()
 	if r.StatusCode != http.StatusOK {
-		var body struct{ Code string }
-		_ = xml.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
-		code := "Unknown"
-		switch body.Code {
-		case "AccessDenied", "SignatureDoesNotMatch", "InvalidRequest", "NoSuchKey", "NoSuchBucket", "AuthorizationHeaderMalformed", "ExpiredToken":
-			code = body.Code
-		}
-		slog.Warn("capture.input_read_failed", "http_status", r.StatusCode, "code", code)
 		return nil, errAWS
 	}
 	b, e := io.ReadAll(io.LimitReader(r.Body, capture.MaxBytes+1))

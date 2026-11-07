@@ -11,7 +11,6 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -91,14 +90,11 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 	if x.Observe != nil {
 		x.Observe("prepare", requestStarted.Sub(prepStarted).Milliseconds())
 	}
-	slog.Info("capture.inference_prepared", "elapsed_ms", requestStarted.Sub(prepStarted).Milliseconds())
 	r, e := transport.request(bounded, "bedrock-mantle", http.MethodPost, target, body, map[string]string{"Content-Type": "application/json"})
 	if e != nil {
-		slog.Warn("capture.inference_failed", "stage", "request", "elapsed_ms", time.Since(requestStarted).Milliseconds(), "deadline_exceeded", bounded.Err() != nil)
 		return capture.CardData{}, errExtraction
 	}
 	defer r.Body.Close()
-	slog.Info("capture.inference_response", "http_status", r.StatusCode, "model", ExtractionModel, "headers_ms", time.Since(requestStarted).Milliseconds())
 	if r.StatusCode != 200 {
 		return capture.CardData{}, errExtraction
 	}
@@ -119,7 +115,6 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		} `json:"choices"`
 	}
 	if json.Unmarshal(response, &out) != nil || len(out.Choices) != 1 || out.Choices[0].FinishReason != "stop" {
-		slog.Warn("capture.inference_failed", "stage", "response_envelope")
 		return capture.CardData{}, errExtraction
 	}
 	text := strings.TrimSpace(out.Choices[0].Message.Content)
@@ -127,22 +122,19 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		text = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(text, "```json\n"), "```"))
 	}
 	if !strings.HasPrefix(text, "{") || len(text) > 8192 {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "object_shape_or_size")
 		return capture.CardData{}, errExtraction
 	}
-	return decodeCardJSON(ctx, slog.Default(), text)
+	return decodeCardJSON(text)
 }
 
-func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capture.CardData, error) {
+func decodeCardJSON(text string) (capture.CardData, error) {
 	decoder := json.NewDecoder(strings.NewReader(text))
 	var fields map[string]json.RawMessage
 	if err := decoder.Decode(&fields); err != nil {
-		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "malformed_json")
 		return capture.CardData{}, errExtraction
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
 		return capture.CardData{}, errExtraction
 	}
 
@@ -159,7 +151,6 @@ func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capt
 		target := targets[field]
 		if target == nil {
 			rejected = true
-			logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json", "reason", "unknown_field")
 			continue
 		}
 		if key != field && fields[field] != nil {
@@ -168,12 +159,7 @@ func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capt
 		var value string
 		if err := json.Unmarshal(raw, &value); err != nil {
 			rejected = true
-			var typeErr *json.UnmarshalTypeError
-			kind := "unknown"
-			if errors.As(err, &typeErr) {
-				kind = cardJSONValueType(typeErr.Value)
-			}
-			logRejectedOCRField(ctx, logger, field, "wrong_value_type", kind, raw)
+
 			continue
 		}
 		previous := *target
@@ -181,33 +167,12 @@ func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capt
 		if !data.Valid() {
 			*target = previous
 			rejected = true
-			logRejectedOCRField(ctx, logger, field, "invalid_card_value", "string", raw)
 		}
 	}
 	if rejected && data.Empty() {
-		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "no_valid_fields")
 		return capture.CardData{}, errExtraction
 	}
 	return data, nil
-}
-
-func logRejectedOCRField(ctx context.Context, logger *slog.Logger, field, reason, kind string, raw json.RawMessage) {
-	// Temporary mock-data diagnostic. Remove mock_value before real documents are used.
-	logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json",
-		"reason", reason, "field", field, "json_type", kind, "expected_type", "string",
-		"mock_value", string(raw))
-}
-
-func cardJSONValueType(value string) string {
-	kind, _, _ := strings.Cut(value, " ")
-	switch kind {
-	case "array", "object", "number", "string", "null":
-		return kind
-	case "bool":
-		return "boolean"
-	default:
-		return "unknown"
-	}
 }
 
 // JPEG color images normally decode to YCbCr. Sample concrete pixels to avoid

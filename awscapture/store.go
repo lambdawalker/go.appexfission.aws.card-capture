@@ -6,7 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"log/slog"
+
 	"strconv"
 	"time"
 
@@ -14,14 +14,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/smithy-go"
+
 	"github.com/lambdawalker/go.appexfission.aws.card-capture/capture"
 )
 
 type Store struct {
-	DB    *dynamodb.Client
-	Table string
-	Send  func(context.Context, capture.Job) error
+	DB           *dynamodb.Client
+	Table        string
+	Send         func(context.Context, capture.Job) error
+	ReportsTable string
 }
 
 func ownerKey(owner string) string {
@@ -155,7 +156,7 @@ func swapWrites(before, after capture.Record, ready bool) ([]types.TransactWrite
 	writes := []types.TransactWriteItem{{Put: &types.Put{Item: m, ConditionExpression: aws.String("Revision = :revision"), ExpressionAttributeValues: map[string]types.AttributeValue{":revision": &types.AttributeValueMemberN{Value: strconv.FormatInt(before.Revision, 10)}}}}}
 	if ready {
 		manifest := after
-		manifest.Extraction, manifest.FrontOCRAsset = nil, nil
+		manifest.Extraction, manifest.FrontOCRAsset, manifest.ComparisonReview = nil, nil, nil
 		event, e := item("READY#"+ownerKey(after.Owner)+"#"+after.ID, struct {
 			Kind     string
 			Manifest capture.Record
@@ -173,7 +174,45 @@ func swapWrites(before, after capture.Record, ready bool) ([]types.TransactWrite
 	}
 	return writes, nil
 }
+
+// comparisonWrite freezes the first submission even when OCR is still retrying.
+func comparisonWrite(before capture.Record, after *capture.Record, table string) (*types.TransactWriteItem, error) {
+	if after.State != "ready" {
+		after.ComparisonReview = nil
+		return nil, nil
+	}
+	if before.ComparisonSaved || after.Reviewed == nil {
+		return nil, nil
+	}
+	if before.Reviewed == nil {
+		after.ComparisonReview = after.Reviewed
+	}
+	review := after.ComparisonReview
+	if review == nil || after.Extraction == nil || after.Extraction.Status == "pending" {
+		return nil, nil
+	}
+	if table == "" {
+		return nil, errors.New("missing OCR comparison table")
+	}
+	report, err := attributevalue.MarshalMapWithOptions(capture.NewComparisonReport(*after, *review), func(opts *attributevalue.EncoderOptions) {
+		opts.TagKey = "json"
+	})
+	if err != nil {
+		return nil, err
+	}
+	report["id"] = &types.AttributeValueMemberS{Value: after.ID}
+	after.ComparisonSaved = true
+	after.ComparisonReview = nil
+	return &types.TransactWriteItem{Put: &types.Put{
+		TableName: aws.String(table), Item: report, ConditionExpression: aws.String("attribute_not_exists(id)"),
+	}}, nil
+}
+
 func (s *Store) Swap(ctx context.Context, before, after capture.Record, ready bool) error {
+	report, e := comparisonWrite(before, &after, s.ReportsTable)
+	if e != nil {
+		return e
+	}
 	writes, e := swapWrites(before, after, ready)
 	if e != nil {
 		return e
@@ -186,16 +225,10 @@ func (s *Store) Swap(ctx context.Context, before, after capture.Record, ready bo
 			writes[i].Update.TableName = aws.String(s.Table)
 		}
 	}
-	_, e = s.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: writes})
-	if e != nil {
-		code := "unknown"
-		var apiError smithy.APIError
-		if errors.As(e, &apiError) {
-			code = apiError.ErrorCode()
-		}
-		// Messages and transaction items can expose card data. Log only AWS error codes.
-		slog.Error("capture.store_swap_failed", "capture_id", after.ID, "ready_transaction", ready, "aws_error_code", code)
+	if report != nil {
+		writes = append(writes, *report)
 	}
+	_, e = s.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: writes})
 	if e != nil {
 		return conditional(e)
 	}
@@ -212,9 +245,7 @@ func (s *Store) Swap(ctx context.Context, before, after capture.Record, ready bo
 			jobs = append(jobs, capture.Job{Owner: after.Owner, ID: after.ID, Generation: after.FrontOCRGeneration, Work: "front-ocr"})
 		}
 		for _, job := range jobs {
-			if err := s.Send(ctx, job); err != nil {
-				slog.Warn("capture.immediate_dispatch_failed", "capture_id", after.ID, "work", job.Work)
-			}
+			_ = s.Send(ctx, job)
 		}
 	}
 	return nil

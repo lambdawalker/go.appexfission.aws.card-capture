@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"log/slog"
 	"reflect"
 	"regexp"
 	"time"
@@ -93,7 +92,6 @@ func (s Service) Get(ctx context.Context, owner, id string) (Record, error) {
 		if e = s.Store.Swap(ctx, before, r, false); e != nil {
 			return Record{}, e
 		}
-		slog.Warn("capture.extraction_recovered", "capture_id", r.ID, "revision", r.Revision)
 	}
 	if r.State == "expired" || r.State == "cancelled" {
 		r.Extraction = nil
