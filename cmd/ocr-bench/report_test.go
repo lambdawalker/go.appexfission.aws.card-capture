@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lambdawalker/go.appexfission.aws.card-capture/capture"
 )
 
 func TestHTMLReportRendersBothModes(t *testing.T) {
@@ -17,7 +19,7 @@ func TestHTMLReportRendersBothModes(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "report.html")
-			if err := writeReport(path, []byte(tc.data)); err != nil {
+			if err := writeReport(path, []byte(tc.data), nil); err != nil {
 				t.Fatal(err)
 			}
 			html, err := os.ReadFile(path)
@@ -30,5 +32,21 @@ func TestHTMLReportRendersBothModes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHTMLJSONComparison(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.html")
+	pairs := map[string][]*jsonComparison{"0001": {{Expected: capture.CardData{FullName: "Élodie"}, Actual: capture.CardData{FullName: "<script>"}}}}
+	if err := writeReport(path, []byte(`{"fixtures":[{"fixture":"0001","runs":[{"success":true}]}]}`), pairs); err != nil {
+		t.Fatal(err)
+	}
+	html, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(html)
+	if strings.Count(body, `class="json-line json-changed"`) != 2 || !strings.Contains(body, "Élodie") || strings.Contains(body, "<script>") || !strings.Contains(body, "Compare JSON") {
+		t.Fatal("comparison did not render both values and highlight only changed lines")
 	}
 }

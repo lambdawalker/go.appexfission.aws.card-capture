@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -46,7 +47,7 @@ func run() (runErr error) {
 	region := flag.String("region", "", "AWS region")
 	profile := flag.String("profile", "", "AWS CLI profile")
 	runs := flag.Int("runs", 10, "serial repetitions (1..1000)")
-	report := flag.String("report", "ocr-bench-report.html", "report path (.html or .json)")
+	report := flag.String("report", "ocr-bench-report/index.html", "report path (.html or .json)")
 	environment := flag.String("environment", "", "saved deployment environment")
 	minSimilarity := flag.Float64("min-similarity", 90, "minimum OCR similarity percentage per fixture")
 	flag.Parse()
@@ -176,6 +177,8 @@ func run() (runErr error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*120*time.Second*time.Duration(len(fixtures))+time.Minute)
 	defer cancel()
+	htmlReport := strings.EqualFold(filepath.Ext(*report), ".html")
+	comparisons := make(map[string][]*jsonComparison)
 	perFixture := make([]map[string]any, 0, len(fixtures))
 	failed := 0
 	progress := newBenchProgress(len(fixtures) * *runs)
@@ -251,6 +254,13 @@ func run() (runErr error) {
 				uploaded = append(uploaded, p.key)
 			}
 			uploadMS := time.Since(uploadStart).Milliseconds()
+			var preview string
+			if htmlReport {
+				preview, e = saveReportImage(*report, item.name, stitched)
+				if e != nil {
+					return e
+				}
+			}
 			temp, e := os.MkdirTemp("", "ocr-bench-")
 			if e != nil {
 				return e
@@ -259,6 +269,7 @@ func run() (runErr error) {
 			invokeRequest := ocrbench.Request{Stitched: prefix + "stitched.jpg", Expected: item.expected}
 			if datasetMode {
 				invokeRequest.MinSimilarity = *minSimilarity
+				invokeRequest.IncludeExtraction = htmlReport
 			}
 			payload, e := json.Marshal(invokeRequest)
 			if e != nil {
@@ -287,6 +298,16 @@ func run() (runErr error) {
 				r := sample{ClientMS: time.Since(started).Milliseconds()}
 				body, _ := os.ReadFile(resultPath)
 				r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
+				if invokeRequest.IncludeExtraction {
+					var comparison *jsonComparison
+					if r.Result.Extraction != nil {
+						comparison = &jsonComparison{Expected: *item.expected, Actual: *r.Result.Extraction}
+					}
+					comparisons[item.name] = append(comparisons[item.name], comparison)
+				}
+				r.Result.Extraction = nil
+				clear(body)
+				_ = os.Remove(resultPath)
 				if datasetMode && r.Validation != nil && r.Validation.MinSimilarity != *minSimilarity {
 					r.Validation = nil
 				}
@@ -317,7 +338,6 @@ func run() (runErr error) {
 					fmt.Printf("Cloud logs: %s\n", cloud.Status)
 				}
 
-				clear(body)
 				clear(stderr)
 				clear(meta)
 				if r.Diagnostic != nil {
@@ -357,6 +377,9 @@ func run() (runErr error) {
 				summary["fixture"] = item.name
 				summary["validation_failures"] = validationFailures
 			}
+			if preview != "" {
+				summary["upload_preview"] = preview
+			}
 			perFixture = append(perFixture, summary)
 			failed += max(*runs-success, validationFailures)
 			return nil
@@ -374,7 +397,7 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
-	if e = writeReport(*report, b); e != nil {
+	if e = writeReport(*report, b, comparisons); e != nil {
 		return e
 	}
 	if e = bundleJSON(filepath.Join(bundle, "summary.json"), summary); e != nil {

@@ -32,6 +32,11 @@ progress.inference::-moz-progress-bar{background:var(--teal)}
 th,td{padding:8px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 .bad{color:#a32232}.ok{color:#006b53}
+.json-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:10px 0}
+.json-pane{min-width:0}.json-pane pre{background:#f5f8fd;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;margin:4px 0;font-size:.83rem}
+.json-line{display:block;min-width:max-content}.json-key{color:#2158a3}.json-value{color:#086343}
+.json-changed{background:#fff0c2;border-left:3px solid #a66d00}.json-compare{margin-top:12px}
+.upload-preview{margin:12px 0}.upload-preview img{display:block;max-width:min(100%,460px);height:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
 </style>
 </head>
 <body>
@@ -51,6 +56,8 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <summary>{{.Name}} · {{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</summary>
 <div class="details">
 <p class="muted">{{.Width}} × {{.Height}} px · {{.Bytes}} bytes · local preparation {{ms .PrepareMS}} · upload {{ms .UploadMS}}</p>
+{{with .Preview}}<details class="upload-preview"><summary>Preview uploaded image</summary>
+<img src="{{.}}" loading="lazy" alt="Stitched front and back image sent for OCR"></details>{{end}}
 <div class="chart" aria-label="Latency by run">
 {{range $i, $run := .Runs}}
 <div class="row"><span>#{{next $i}}</span><div class="bars">
@@ -66,6 +73,20 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <td class="{{if and $run.Success (or (not $run.Validation) $run.Validation.Passed)}}ok{{else}}bad{{end}}">{{.Status}}</td>
 <td>{{with .Validation}}{{printf "%.2f" .Similarity}}% similarity · {{printf "%.2f" .MinSimilarity}}% required{{range .Mismatches}}<div>{{.}}</div>{{end}}{{end}}{{with .Diagnostic}}{{.Message}}{{else}}{{.Error}}{{end}}</td></tr>
 {{end}}</tbody></table></div>
+{{range $i, $run := .Runs}}
+{{with $run.Comparison}}
+{{$lines := .Lines}}
+<details class="json-compare">
+<summary>Run {{next $i}} · Compare JSON</summary>
+<div class="json-grid">
+<div class="json-pane"><h3>Expected</h3><pre><code>{
+{{range $lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Expected}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre></div>
+<div class="json-pane"><h3>OCR result</h3><pre><code>{
+{{range $lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Actual}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre></div>
+</div>
+</details>
+{{end}}
+{{end}}
 </div>
 </details>
 </section>

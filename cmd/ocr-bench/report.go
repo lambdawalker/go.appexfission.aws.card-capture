@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"html/template"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/lambdawalker/go.appexfission.aws.card-capture/capture"
 	"github.com/lambdawalker/go.appexfission.aws.card-capture/ocrbench"
 )
 
@@ -21,13 +24,45 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 	"next": func(i int) int { return i + 1 },
 }).Parse(reportHTML))
 
+type jsonComparison struct {
+	Expected, Actual capture.CardData
+}
+
+type jsonLine struct {
+	Key, Expected, Actual string
+	Changed, Comma        bool
+}
+
+func (c jsonComparison) Lines() []jsonLine {
+	fields := func(card capture.CardData) map[string]json.RawMessage {
+		data, _ := json.Marshal(card)
+		var values map[string]json.RawMessage
+		_ = json.Unmarshal(data, &values)
+		return values
+	}
+	expected, actual := fields(c.Expected), fields(c.Actual)
+	keys := make([]string, 0, len(expected))
+	for key := range expected {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	lines := make([]jsonLine, 0, len(keys))
+	for i, key := range keys {
+		want, got := string(expected[key]), string(actual[key])
+		lines = append(lines, jsonLine{Key: key, Expected: want, Actual: got, Changed: want != got, Comma: i < len(keys)-1})
+	}
+	return lines
+}
+
 type reportRun struct {
+	Comparison *jsonComparison `json:"-"`
 	ocrbench.Result
 	ClientMS   int64       `json:"client_ms"`
 	Diagnostic *diagnostic `json:"diagnostic"`
 }
 
 type reportFixture struct {
+	Preview   string      `json:"upload_preview"`
 	Name      string      `json:"fixture"`
 	Runs      []reportRun `json:"runs"`
 	UploadMS  int64       `json:"upload_ms"`
@@ -62,7 +97,7 @@ func (r reportRun) Status() string {
 	}
 }
 
-func writeReport(path string, data []byte) error {
+func writeReport(path string, data []byte, comparisons map[string][]*jsonComparison) error {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
 		return os.WriteFile(path, data, 0600)
@@ -81,8 +116,14 @@ func writeReport(path string, data []byte) error {
 			page.Fixtures = []reportFixture{fixture}
 		}
 		var successful []int64
-		for _, fixture := range page.Fixtures {
-			for _, run := range fixture.Runs {
+		for i := range page.Fixtures {
+			fixture := &page.Fixtures[i]
+			pairs := comparisons[fixture.Name]
+			for j := range fixture.Runs {
+				run := &fixture.Runs[j]
+				if j < len(pairs) {
+					run.Comparison = pairs[j]
+				}
 				page.Attempts++
 				page.Scale = max(page.Scale, run.ClientMS, run.InferenceMS)
 				if run.Success {
@@ -102,4 +143,25 @@ func writeReport(path string, data []byte) error {
 	default:
 		return fmt.Errorf("report path must end in .html or .json")
 	}
+}
+
+// saveReportImage copies the exact JPEG sent to the benchmark input bucket.
+func saveReportImage(reportPath, fixture, source string) (string, error) {
+	if fixture == "" {
+		fixture = "pair"
+	}
+	stem := strings.TrimSuffix(filepath.Base(reportPath), filepath.Ext(reportPath))
+	relative := path.Join("resources", stem+"-"+fixture+".jpg")
+	destination := filepath.Join(filepath.Dir(reportPath), filepath.FromSlash(relative))
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(destination, data, 0600); err != nil {
+		return "", err
+	}
+	return relative, nil
 }

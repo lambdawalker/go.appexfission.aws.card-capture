@@ -10,22 +10,24 @@ import (
 )
 
 type Request struct {
-	MinSimilarity float64           `json:"min_similarity_pct,omitempty"`
-	Expected      *capture.CardData `json:"expected,omitempty"`
-	Stitched      string            `json:"stitched,omitempty"`
-	Front         string            `json:"front,omitempty"`
-	Back          string            `json:"back,omitempty"`
+	IncludeExtraction bool              `json:"include_extraction,omitempty"`
+	MinSimilarity     float64           `json:"min_similarity_pct,omitempty"`
+	Expected          *capture.CardData `json:"expected,omitempty"`
+	Stitched          string            `json:"stitched,omitempty"`
+	Front             string            `json:"front,omitempty"`
+	Back              string            `json:"back,omitempty"`
 }
 type Result struct {
-	Validation  *Validation `json:"validation,omitempty"`
-	PrepareMS   int64       `json:"prepare_ms"`
-	InferenceMS int64       `json:"inference_ms"`
-	Success     bool        `json:"success"`
-	ColdStart   bool        `json:"cold_start"`
-	ReadMS      int64       `json:"read_ms"`
-	ExtractMS   int64       `json:"extract_ms"`
-	TotalMS     int64       `json:"total_ms"`
-	Error       string      `json:"error,omitempty"`
+	Extraction  *capture.CardData `json:"extraction,omitempty"`
+	Validation  *Validation       `json:"validation,omitempty"`
+	PrepareMS   int64             `json:"prepare_ms"`
+	InferenceMS int64             `json:"inference_ms"`
+	Success     bool              `json:"success"`
+	ColdStart   bool              `json:"cold_start"`
+	ReadMS      int64             `json:"read_ms"`
+	ExtractMS   int64             `json:"extract_ms"`
+	TotalMS     int64             `json:"total_ms"`
+	Error       string            `json:"error,omitempty"`
 }
 type Reader func(context.Context, string) ([]byte, error)
 
@@ -91,6 +93,9 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 	}
 	if req.Expected != nil {
 		result.Validation = compareCard(data, *req.Expected, threshold)
+		if req.IncludeExtraction {
+			result.Extraction = &data
+		}
 	}
 	result.Success = true
 	return finish("")
