@@ -35,8 +35,7 @@ func (x BedrockExtractor) Extract(ctx context.Context, images []capture.CardImag
 	return x.extract(ctx, images, false)
 }
 
-// ExtractStitched is the isolated benchmark path: front above back in one image.
-// The production Extract contract continues to require separate front and back.
+// ExtractStitched reads a single image with the front above the back.
 func (x BedrockExtractor) ExtractStitched(ctx context.Context, data []byte) (capture.CardData, error) {
 	return x.extract(ctx, []capture.CardImage{{Slot: "stitched", JPEG: data}}, true)
 }

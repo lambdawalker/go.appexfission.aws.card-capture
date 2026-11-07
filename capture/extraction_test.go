@@ -2,6 +2,8 @@ package capture
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
@@ -237,5 +239,65 @@ func TestActiveExtractionLeaseIsNotFailedByRead(t *testing.T) {
 	got, err := s.Get(context.Background(), r.Owner, r.ID)
 	if err != nil || got.Extraction.Status != "pending" {
 		t.Fatal("active extraction interrupted", err)
+	}
+}
+
+type stitchedExtractor struct {
+	extractorFunc
+	stitched func([]byte) (CardData, error)
+}
+
+func (f stitchedExtractor) ExtractStitched(_ context.Context, jpeg []byte) (CardData, error) {
+	return f.stitched(jpeg)
+}
+
+func TestStitchedCaptureRetainsBothAssetsAndUsesColorPairForOCR(t *testing.T) {
+	s, m, o, _ := fixture(t)
+	s.Extractor = stitchedExtractor{
+		extractorFunc: func(context.Context, []CardImage) (CardData, error) {
+			t.Fatal("stitched capture called the separate-side extractor")
+			return CardData{}, nil
+		},
+		stitched: func(jpeg []byte) (CardData, error) {
+			if len(jpeg) == 0 {
+				t.Fatal("missing stitched JPEG")
+			}
+			return CardData{FullName: "Test Person"}, nil
+		},
+	}
+	ctx := context.Background()
+	r, err := s.Create(ctx, "owner", "create_operation_1", "sample_card", s.Policy().Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(o.data)
+	for _, slot := range []string{"front", "stitched"} {
+		reply, err := s.Upload(ctx, r.Owner, r.ID, UploadRequest{
+			OperationKey: "upload_operation_" + slot, Revision: r.Revision, Slot: slot,
+			SHA256: base64.StdEncoding.EncodeToString(sum[:]), Size: int64(len(o.data)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r = reply.Capture
+	}
+	r, err = s.Finalize(ctx, r.Owner, r.ID, FinalizeRequest{
+		OperationKey: "finalize_operation_1", Revision: r.Revision, UploadIDs: r.Slots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"validate", "extract"} {
+		if r.Work != phase {
+			t.Fatalf("expected %s, got %s", phase, r.Work)
+		}
+		if err := s.Work(ctx, Job{r.Owner, r.ID, r.Generation, r.Work}); err != nil {
+			t.Fatal(err)
+		}
+		r = m.records[r.ID]
+	}
+	if len(r.Assets) != 2 || len(r.Processed) != 2 || r.Processed[0].Slot != "front" ||
+		r.Processed[1].Slot != "stitched" || r.Extraction.Status != "complete" {
+		t.Fatal("both evidence files and successful extraction must be retained")
 	}
 }
