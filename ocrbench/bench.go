@@ -10,23 +10,25 @@ import (
 )
 
 type Request struct {
-	Stitched string `json:"stitched,omitempty"`
-	Front    string `json:"front,omitempty"`
-	Back     string `json:"back,omitempty"`
+	Expected *capture.CardData `json:"expected,omitempty"`
+	Stitched string            `json:"stitched,omitempty"`
+	Front    string            `json:"front,omitempty"`
+	Back     string            `json:"back,omitempty"`
 }
 type Result struct {
-	PrepareMS   int64  `json:"prepare_ms"`
-	InferenceMS int64  `json:"inference_ms"`
-	Success     bool   `json:"success"`
-	ColdStart   bool   `json:"cold_start"`
-	ReadMS      int64  `json:"read_ms"`
-	ExtractMS   int64  `json:"extract_ms"`
-	TotalMS     int64  `json:"total_ms"`
-	Error       string `json:"error,omitempty"`
+	Validation  *Validation `json:"validation,omitempty"`
+	PrepareMS   int64       `json:"prepare_ms"`
+	InferenceMS int64       `json:"inference_ms"`
+	Success     bool        `json:"success"`
+	ColdStart   bool        `json:"cold_start"`
+	ReadMS      int64       `json:"read_ms"`
+	ExtractMS   int64       `json:"extract_ms"`
+	TotalMS     int64       `json:"total_ms"`
+	Error       string      `json:"error,omitempty"`
 }
 type Reader func(context.Context, string) ([]byte, error)
 
-// Run deliberately returns timings only; document values never enter benchmark reports.
+// Run reports timings and optional mismatch field names without document values.
 func Run(ctx context.Context, req Request, read Reader, extractor capture.Extractor) Result {
 	start := time.Now()
 	result := Result{}
@@ -63,6 +65,7 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 	result.ReadMS = time.Since(start).Milliseconds()
 	started := time.Now()
 	var e error
+	var data capture.CardData
 	if req.Stitched != "" {
 		x, ok := extractor.(interface {
 			ExtractStitched(context.Context, []byte) (capture.CardData, error)
@@ -70,13 +73,16 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 		if !ok {
 			return finish("stitched_unsupported")
 		}
-		_, e = x.ExtractStitched(ctx, images[0].JPEG)
+		data, e = x.ExtractStitched(ctx, images[0].JPEG)
 	} else {
-		_, e = extractor.Extract(ctx, images)
+		data, e = extractor.Extract(ctx, images)
 	}
 	result.ExtractMS = time.Since(started).Milliseconds()
 	if e != nil {
 		return finish("extraction_failed")
+	}
+	if req.Expected != nil {
+		result.Validation = compareCard(data, *req.Expected)
 	}
 	result.Success = true
 	return finish("")

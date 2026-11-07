@@ -38,6 +38,7 @@ func percentile(values []int64, p float64) int64 {
 	return v[int(math.Ceil(p*float64(len(v))))-1]
 }
 func run() (runErr error) {
+	directory := flag.String("directory", "validation", "directory containing numbered validation fixtures")
 	front := flag.String("front", "", "front JPEG")
 	back := flag.String("back", "", "back JPEG")
 	bucket := flag.String("bucket", "", "bench bucket output")
@@ -48,6 +49,24 @@ func run() (runErr error) {
 	report := flag.String("report", "ocr-bench-report.json", "timings only report")
 	environment := flag.String("environment", "", "saved deployment environment")
 	flag.Parse()
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	datasetMode := *front == "" && *back == ""
+	if explicit["directory"] && !datasetMode {
+		return fmt.Errorf("use --directory or --front/--back")
+	}
+	if datasetMode && !explicit["runs"] {
+		*runs = 1
+	}
+	fixtures := []fixture{{front: *front, back: *back}}
+	if datasetMode {
+		var err error
+		fixtures, err = loadFixtures(*directory)
+		if err != nil {
+			return err
+		}
+	}
+
 	if *runs < 1 || *runs > 1000 {
 		return fmt.Errorf("runs must be 1..1000")
 	}
@@ -115,17 +134,20 @@ func run() (runErr error) {
 	if *fn, e = askMissing(reader, "OCR Lambda function", *fn); e != nil {
 		return e
 	}
-	if *front == "" {
-		*front = chooseImage(root, "front", saved.Front)
-	}
-	if *back == "" {
-		*back = chooseImage(root, "back", saved.Back)
-	}
-	if *front, e = askMissing(reader, "Front image path (PNG/JPEG)", *front); e != nil {
-		return e
-	}
-	if *back, e = askMissing(reader, "Back image path (PNG/JPEG)", *back); e != nil {
-		return e
+	if !datasetMode {
+		if *front == "" {
+			*front = chooseImage(root, "front", saved.Front)
+		}
+		if *back == "" {
+			*back = chooseImage(root, "back", saved.Back)
+		}
+		if *front, e = askMissing(reader, "Front image path (PNG/JPEG)", *front); e != nil {
+			return e
+		}
+		if *back, e = askMissing(reader, "Back image path (PNG/JPEG)", *back); e != nil {
+			return e
+		}
+		fixtures[0].front, fixtures[0].back = *front, *back
 	}
 	fmt.Printf("OCR benchmark • environment %s\nProfile: %s • region: %s\nBucket: %s\nFunction: %s\n", *environment, *profile, *region, *bucket, *fn)
 
@@ -133,7 +155,7 @@ func run() (runErr error) {
 		os.Setenv("AWS_PROFILE", *profile)
 	}
 	os.Setenv("AWS_DEFAULT_REGION", *region)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*100*time.Second+time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*120*time.Second*time.Duration(len(fixtures))+time.Minute)
 	defer cancel()
 	if e = bundleJSON(filepath.Join(bundle, "local", "setup.json"), map[string]any{"environment": *environment, "profile": *profile, "region": *region, "bucket": *bucket, "function": *fn, "expected_account": saved.Account, "runs": *runs}); e != nil {
 		return e
@@ -150,138 +172,172 @@ func run() (runErr error) {
 	if saved.Account != "" && who.Account != saved.Account {
 		return fmt.Errorf("signed-in AWS account differs from saved deployment")
 	}
-	localStage = "image_preparation"
-	imageDir, e := os.MkdirTemp("", "ocr-bench-images-")
-	if e != nil {
-		return e
-	}
-	defer os.RemoveAll(imageDir)
-	originalFront, _ := filepath.Abs(*front)
-	originalBack, _ := filepath.Abs(*back)
-	stitched := filepath.Join(imageDir, "stitched.jpg")
-	prepareStart := time.Now()
-	if e = prepareStitched(*front, *back, stitched); e != nil {
-		return e
-	}
-	imagePrepareMS := time.Since(prepareStart).Milliseconds()
-	info, e := os.Stat(stitched)
-	if e != nil {
-		return e
-	}
-	imageConfig, e := uploadedImageConfig(stitched)
-	if e != nil {
-		return e
-	}
-	fmt.Printf("Prepared front + back: %d x %d pixels, grayscale, %.1f KiB (one JPEG)\n", imageConfig.Width, imageConfig.Height, float64(info.Size())/1024)
-	if *environment != "" {
-		dir := filepath.Join(root, ".deploy", "ocr-bench", *environment)
-		if e = os.MkdirAll(dir, 0700); e != nil {
-			return e
+	perFixture := make([]map[string]any, 0, len(fixtures))
+	failed := 0
+	for _, item := range fixtures {
+		itemBundle := bundle
+		if datasetMode {
+			fmt.Println("Validating fixture", item.name)
+			itemBundle = filepath.Join(bundle, item.name)
 		}
-		b, _ := json.Marshal(struct{ Front, Back string }{originalFront, originalBack})
-		if e = os.WriteFile(filepath.Join(dir, "inputs.json"), b, 0600); e != nil {
-			return e
-		}
-	}
-	id := make([]byte, 16)
-	if _, e := rand.Read(id); e != nil {
-		return e
-	}
-	prefix := "inputs/" + hex.EncodeToString(id) + "/"
-	localStage = "upload"
-	uploadStart := time.Now()
-	uploaded := []string{}
-	defer func() {
-		for _, key := range uploaded {
-			cleanup, done := context.WithTimeout(context.Background(), 15*time.Second)
-			_, e := aws(cleanup, "s3api", "delete-object", "--bucket", *bucket, "--key", prefix+key)
-			done()
+		err := func(bundle string) error {
+			localStage = "image_preparation"
+			imageDir, e := os.MkdirTemp("", "ocr-bench-images-")
 			if e != nil {
-				fmt.Fprintln(os.Stderr, "Input cleanup incomplete; one-day lifecycle remains as fallback")
+				return e
 			}
-		}
-	}()
-	for _, p := range []struct{ file, key string }{{stitched, "stitched.jpg"}} {
-		if _, e := aws(ctx, "s3api", "put-object", "--bucket", *bucket, "--key", prefix+p.key, "--body", p.file, "--content-type", "image/jpeg"); e != nil {
-			return e
-		}
-		uploaded = append(uploaded, p.key)
-	}
-	uploadMS := time.Since(uploadStart).Milliseconds()
-	temp, e := os.MkdirTemp("", "ocr-bench-")
-	if e != nil {
-		return e
-	}
-	defer os.RemoveAll(temp)
-	payload, _ := json.Marshal(ocrbench.Request{Stitched: prefix + "stitched.jpg"})
-	request := filepath.Join(temp, "request.json")
-	if e = os.WriteFile(request, payload, 0600); e != nil {
-		return e
-	}
-	type sample struct {
-		ocrbench.Result
-		ClientMS   int64       `json:"client_ms"`
-		Diagnostic *diagnostic `json:"diagnostic,omitempty"`
-	}
-	samples := []sample{}
-	warm := []int64{}
-	all := []int64{}
-	success := 0
-	localStage = "invocation"
-	for i := 0; i < *runs; i++ {
-		resultPath := filepath.Join(temp, fmt.Sprintf("response-%d.json", i))
-		started := time.Now()
-		meta, stderr, invokeErr := invokeAWS(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", "--output", "json", "--no-cli-pager", "--log-type", "Tail", resultPath)
-		r := sample{ClientMS: time.Since(started).Milliseconds()}
-		body, _ := os.ReadFile(resultPath)
-		r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
-		attemptDir := filepath.Join(bundle, fmt.Sprintf("attempt-%03d", i+1))
-		requestID, tail, httpStatus := invocationTail(meta)
-		exitStatus := 0
-		if invokeErr != nil {
-			exitStatus = 1
-			if exit, ok := invokeErr.(*exec.ExitError); ok {
-				exitStatus = exit.ExitCode()
+			defer os.RemoveAll(imageDir)
+			originalFront, _ := filepath.Abs(item.front)
+			originalBack, _ := filepath.Abs(item.back)
+			stitched := filepath.Join(imageDir, "stitched.jpg")
+			prepareStart := time.Now()
+			if e = prepareStitched(item.front, item.back, stitched); e != nil {
+				return e
 			}
-		}
-		if e = bundleJSON(filepath.Join(attemptDir, "local", "invoke.json"), map[string]any{"started_at": started.UTC(), "finished_at": time.Now().UTC(), "client_ms": r.ClientMS, "cli_exit_code": exitStatus, "http_status": httpStatus, "diagnostic": r.Diagnostic}); e != nil {
-			return e
-		}
-		logCtx, logCancel := context.WithTimeout(context.Background(), 20*time.Second)
-		cloud := collectCloud(logCtx, invokeAWS, "/aws/lambda/"+*fn, requestID, started, time.Now(), tail)
-		logCancel()
-		clear(tail)
-		if e = bundleJSON(filepath.Join(attemptDir, "cloud", "logs.json"), cloud); e != nil {
-			return e
-		}
-		if e = bundleJSON(filepath.Join(attemptDir, "cloud", "result.json"), r.Result); e != nil {
-			return e
-		}
-		fmt.Printf("Cloud logs: %s\n", cloud.Status)
+			imagePrepareMS := time.Since(prepareStart).Milliseconds()
+			info, e := os.Stat(stitched)
+			if e != nil {
+				return e
+			}
+			imageConfig, e := uploadedImageConfig(stitched)
+			if e != nil {
+				return e
+			}
+			fmt.Printf("Prepared front + back: %d x %d pixels, grayscale, %.1f KiB (one JPEG)\n", imageConfig.Width, imageConfig.Height, float64(info.Size())/1024)
+			if !datasetMode && *environment != "" {
+				dir := filepath.Join(root, ".deploy", "ocr-bench", *environment)
+				if e = os.MkdirAll(dir, 0700); e != nil {
+					return e
+				}
+				b, _ := json.Marshal(struct{ Front, Back string }{originalFront, originalBack})
+				if e = os.WriteFile(filepath.Join(dir, "inputs.json"), b, 0600); e != nil {
+					return e
+				}
+			}
+			id := make([]byte, 16)
+			if _, e := rand.Read(id); e != nil {
+				return e
+			}
+			prefix := "inputs/" + hex.EncodeToString(id) + "/"
+			localStage = "upload"
+			uploadStart := time.Now()
+			uploaded := []string{}
+			defer func() {
+				for _, key := range uploaded {
+					cleanup, done := context.WithTimeout(context.Background(), 15*time.Second)
+					_, e := aws(cleanup, "s3api", "delete-object", "--bucket", *bucket, "--key", prefix+key)
+					done()
+					if e != nil {
+						fmt.Fprintln(os.Stderr, "Input cleanup incomplete; one-day lifecycle remains as fallback")
+					}
+				}
+			}()
+			for _, p := range []struct{ file, key string }{{stitched, "stitched.jpg"}} {
+				if _, e := aws(ctx, "s3api", "put-object", "--bucket", *bucket, "--key", prefix+p.key, "--body", p.file, "--content-type", "image/jpeg"); e != nil {
+					return e
+				}
+				uploaded = append(uploaded, p.key)
+			}
+			uploadMS := time.Since(uploadStart).Milliseconds()
+			temp, e := os.MkdirTemp("", "ocr-bench-")
+			if e != nil {
+				return e
+			}
+			defer os.RemoveAll(temp)
+			payload, _ := json.Marshal(ocrbench.Request{Stitched: prefix + "stitched.jpg", Expected: item.expected})
+			request := filepath.Join(temp, "request.json")
+			if e = os.WriteFile(request, payload, 0600); e != nil {
+				return e
+			}
+			type sample struct {
+				ocrbench.Result
+				ClientMS   int64       `json:"client_ms"`
+				Diagnostic *diagnostic `json:"diagnostic,omitempty"`
+			}
+			samples := []sample{}
+			warm := []int64{}
+			all := []int64{}
+			success := 0
+			validationFailures := 0
+			localStage = "invocation"
+			for i := 0; i < *runs; i++ {
+				resultPath := filepath.Join(temp, fmt.Sprintf("response-%d.json", i))
+				started := time.Now()
+				meta, stderr, invokeErr := invokeAWS(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", "--output", "json", "--no-cli-pager", "--log-type", "Tail", resultPath)
+				r := sample{ClientMS: time.Since(started).Milliseconds()}
+				body, _ := os.ReadFile(resultPath)
+				r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
+				attemptDir := filepath.Join(bundle, fmt.Sprintf("attempt-%03d", i+1))
+				requestID, tail, httpStatus := invocationTail(meta)
+				exitStatus := 0
+				if invokeErr != nil {
+					exitStatus = 1
+					if exit, ok := invokeErr.(*exec.ExitError); ok {
+						exitStatus = exit.ExitCode()
+					}
+				}
+				if e = bundleJSON(filepath.Join(attemptDir, "local", "invoke.json"), map[string]any{"started_at": started.UTC(), "finished_at": time.Now().UTC(), "client_ms": r.ClientMS, "cli_exit_code": exitStatus, "http_status": httpStatus, "diagnostic": r.Diagnostic}); e != nil {
+					return e
+				}
+				logCtx, logCancel := context.WithTimeout(context.Background(), 20*time.Second)
+				cloud := collectCloud(logCtx, invokeAWS, "/aws/lambda/"+*fn, requestID, started, time.Now(), tail)
+				logCancel()
+				clear(tail)
+				if e = bundleJSON(filepath.Join(attemptDir, "cloud", "logs.json"), cloud); e != nil {
+					return e
+				}
+				if e = bundleJSON(filepath.Join(attemptDir, "cloud", "result.json"), r.Result); e != nil {
+					return e
+				}
+				fmt.Printf("Cloud logs: %s\n", cloud.Status)
 
-		clear(body)
-		clear(stderr)
-		clear(meta)
-		if r.Diagnostic != nil {
-			fmt.Fprintf(os.Stderr, "Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
-			if r.Diagnostic.RequestID != "" {
-				fmt.Fprintf(os.Stderr, " • request %s", r.Diagnostic.RequestID)
-			}
-			fmt.Fprintln(os.Stderr)
-		}
+				clear(body)
+				clear(stderr)
+				clear(meta)
+				if r.Diagnostic != nil {
+					fmt.Fprintf(os.Stderr, "Run %d: %s [%s]\nCloudWatch: %s", i+1, r.Diagnostic.Message, r.Diagnostic.Code, r.Diagnostic.LogGroup)
+					if r.Diagnostic.RequestID != "" {
+						fmt.Fprintf(os.Stderr, " • request %s", r.Diagnostic.RequestID)
+					}
+					fmt.Fprintln(os.Stderr)
+				}
 
-		samples = append(samples, r)
-		if r.Success {
-			success++
-			all = append(all, r.ClientMS)
-			if !r.ColdStart {
-				warm = append(warm, r.ClientMS)
+				if datasetMode && (!r.Success || r.Validation == nil || !r.Validation.Passed) {
+					validationFailures++
+					if r.Validation != nil {
+						fmt.Printf("Fixture %s mismatched fields: %v\n", item.name, r.Validation.Mismatches)
+					} else if r.Success {
+						fmt.Fprintln(os.Stderr, "Validation result missing. Redeploy the OCR benchmark Lambda.")
+					}
+				}
+				samples = append(samples, r)
+				if r.Success {
+					success++
+					all = append(all, r.ClientMS)
+					if !r.ColdStart {
+						warm = append(warm, r.ClientMS)
+					}
+				}
+				fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
 			}
+			localStage = "report"
+			summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "upload_width_px": imageConfig.Width, "upload_height_px": imageConfig.Height, "input_color_mode": "grayscale", "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
+			if datasetMode {
+				summary["fixture"] = item.name
+				summary["validation_failures"] = validationFailures
+			}
+			perFixture = append(perFixture, summary)
+			failed += max(*runs-success, validationFailures)
+			return nil
+		}(itemBundle)
+		if err != nil {
+			return fmt.Errorf("benchmark input %q: %w", item.name, err)
 		}
-		fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
 	}
-	localStage = "report"
-	summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "upload_width_px": imageConfig.Width, "upload_height_px": imageConfig.Height, "input_color_mode": "grayscale", "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
+	summary := perFixture[0]
+	if datasetMode {
+		summary = map[string]any{"schema": 1, "fixtures": perFixture, "fixture_count": len(fixtures), "validation_failures": failed, "validation_passes": len(fixtures)**runs - failed}
+	}
 	b, e := json.MarshalIndent(summary, "", "  ")
 	if e != nil {
 		return e
@@ -293,8 +349,8 @@ func run() (runErr error) {
 		return e
 	}
 	fmt.Println(string(b))
-	if success != *runs {
-		return fmt.Errorf("%d benchmark runs failed; see report", *runs-success)
+	if failed != 0 {
+		return fmt.Errorf("%d benchmark runs failed; see report", failed)
 	}
 	return nil
 }
