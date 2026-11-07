@@ -8,7 +8,9 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
+	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -160,5 +162,34 @@ func TestFrontOCRUsesBoundedGrayscaleJPEG(t *testing.T) {
 	}
 	if _, ok := decoded.(*image.Gray); !ok || decoded.Bounds().Dx() != 1600 || decoded.Bounds().Dy() != 1066 {
 		t.Fatalf("unexpected front OCR image: %T %v", decoded, decoded.Bounds())
+	}
+}
+
+func TestCardJSONTypeWarningUsesOnlySchemaMetadata(t *testing.T) {
+	for _, tc := range []struct{ input, field, kind string }{
+		{`{"document_number":987654321}`, "document_number", "number"},
+		{`{"SURnames":["Synthetic Person"]}`, "surnames", "array"},
+		{`{"address":{"Sensitive Key":"Synthetic Value"}}`, "address", "object"},
+		{`{"expiry_date":false}`, "expiry_date", "boolean"},
+	} {
+		var data capture.CardData
+		err := json.Unmarshal([]byte(tc.input), &data)
+		if err == nil {
+			t.Fatal("expected type mismatch")
+		}
+		want := []slog.Attr{
+			slog.String("reason", "wrong_value_type"),
+			slog.String("field", tc.field),
+			slog.String("json_type", tc.kind),
+			slog.String("expected_type", "string"),
+		}
+		if got := cardJSONDecodeAttrs(err); !reflect.DeepEqual(got, want) {
+			t.Errorf("diagnostic = %v, want %v", got, want)
+		}
+	}
+	err := &json.UnmarshalTypeError{Field: "Sensitive Key", Value: "number 987654321"}
+	want := []slog.Attr{slog.String("reason", "wrong_value_type")}
+	if got := cardJSONDecodeAttrs(err); !reflect.DeepEqual(got, want) {
+		t.Errorf("unrecognized field diagnostic = %v, want %v", got, want)
 	}
 }

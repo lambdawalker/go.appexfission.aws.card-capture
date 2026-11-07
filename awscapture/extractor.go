@@ -134,7 +134,9 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 	decoder.DisallowUnknownFields()
 	var data capture.CardData
 	if err := decoder.Decode(&data); err != nil {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", cardJSONDecodeReason(err))
+		slog.LogAttrs(ctx, slog.LevelWarn, "capture.inference_failed", append(
+			[]slog.Attr{slog.String("stage", "card_json")}, cardJSONDecodeAttrs(err)...,
+		)...)
 		return capture.CardData{}, errExtraction
 	}
 	if !data.Valid() {
@@ -149,17 +151,37 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 	return data, nil
 }
 
-// Decoder error messages can include model-generated field names. Log only
-// a fixed category so document contents never reach CloudWatch.
-func cardJSONDecodeReason(err error) string {
+// Decoder errors can contain model-generated names and literal values.
+// Only schema field names and fixed JSON type labels may reach CloudWatch.
+func cardJSONDecodeAttrs(err error) []slog.Attr {
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
-		return "wrong_value_type"
+		attrs := []slog.Attr{slog.String("reason", "wrong_value_type")}
+		switch field := strings.ToLower(typeErr.Field); field {
+		case "full_name", "given_names", "surnames", "birth_date", "document_number",
+			"issued_identifier", "address", "issue_date", "expiry_date", "issuing_country":
+			return append(attrs, slog.String("field", field),
+				slog.String("json_type", cardJSONValueType(typeErr.Value)),
+				slog.String("expected_type", "string"))
+		}
+		return attrs
 	}
 	if strings.HasPrefix(err.Error(), "json: unknown field ") {
-		return "unknown_field"
+		return []slog.Attr{slog.String("reason", "unknown_field")}
 	}
-	return "malformed_json"
+	return []slog.Attr{slog.String("reason", "malformed_json")}
+}
+
+func cardJSONValueType(value string) string {
+	kind, _, _ := strings.Cut(value, " ")
+	switch kind {
+	case "array", "object", "number", "string", "null":
+		return kind
+	case "bool":
+		return "boolean"
+	default:
+		return "unknown"
+	}
 }
 
 // JPEG color images normally decode to YCbCr. Sample concrete pixels to avoid
