@@ -193,7 +193,7 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 			r.Work = "extract"
 			r.Due = s.now().Unix()
 		}
-		return s.finishValidation(ctx, before, r, true)
+		return s.finishValidation(ctx, before, r, before.DeleteAfter == 0)
 	}
 	if validationErr == ErrImage {
 		r.State = "requires_recapture"
@@ -226,7 +226,7 @@ func (s Service) finishValidation(ctx context.Context, before, next Record, read
 		if err != nil {
 			return err
 		}
-		if current.Generation != before.Generation || current.State != before.State ||
+		if current.Revision == before.Revision || current.Generation != before.Generation || current.State != before.State ||
 			current.LeaseUntil != before.LeaseUntil {
 			return ErrConflict
 		}
