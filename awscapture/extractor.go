@@ -130,36 +130,84 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "object_shape_or_size")
 		return capture.CardData{}, errExtraction
 	}
+	return decodeCardJSON(ctx, slog.Default(), text)
+}
+
+func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capture.CardData, error) {
 	decoder := json.NewDecoder(strings.NewReader(text))
-	decoder.DisallowUnknownFields()
-	var data capture.CardData
-	if err := decoder.Decode(&data); err != nil {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", cardJSONDecodeReason(err))
-		return capture.CardData{}, errExtraction
-	}
-	if !data.Valid() {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "invalid_card_value")
+	var fields map[string]json.RawMessage
+	if err := decoder.Decode(&fields); err != nil {
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "malformed_json")
 		return capture.CardData{}, errExtraction
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
+		return capture.CardData{}, errExtraction
+	}
+
+	var data capture.CardData
+	targets := map[string]*string{
+		"full_name": &data.FullName, "given_names": &data.GivenNames, "surnames": &data.Surnames,
+		"birth_date": &data.BirthDate, "document_number": &data.DocumentNumber,
+		"issued_identifier": &data.PersonalNumber, "address": &data.Address,
+		"issue_date": &data.IssueDate, "expiry_date": &data.ExpiryDate, "issuing_country": &data.IssuingCountry,
+	}
+	rejected := false
+	for key, raw := range fields {
+		field := strings.ToLower(key)
+		target := targets[field]
+		if target == nil {
+			rejected = true
+			logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json", "reason", "unknown_field")
+			continue
+		}
+		if key != field && fields[field] != nil {
+			continue // Prefer the schema spelling if the model sent both.
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			rejected = true
+			var typeErr *json.UnmarshalTypeError
+			kind := "unknown"
+			if errors.As(err, &typeErr) {
+				kind = cardJSONValueType(typeErr.Value)
+			}
+			logRejectedOCRField(ctx, logger, field, "wrong_value_type", kind, raw)
+			continue
+		}
+		previous := *target
+		*target = value
+		if !data.Valid() {
+			*target = previous
+			rejected = true
+			logRejectedOCRField(ctx, logger, field, "invalid_card_value", "string", raw)
+		}
+	}
+	if rejected && data.Empty() {
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "no_valid_fields")
 		return capture.CardData{}, errExtraction
 	}
 	return data, nil
 }
 
-// Decoder error messages can include model-generated field names. Log only
-// a fixed category so document contents never reach CloudWatch.
-func cardJSONDecodeReason(err error) string {
-	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
-		return "wrong_value_type"
+func logRejectedOCRField(ctx context.Context, logger *slog.Logger, field, reason, kind string, raw json.RawMessage) {
+	// Temporary mock-data diagnostic. Remove mock_value before real documents are used.
+	logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json",
+		"reason", reason, "field", field, "json_type", kind, "expected_type", "string",
+		"mock_value", string(raw))
+}
+
+func cardJSONValueType(value string) string {
+	kind, _, _ := strings.Cut(value, " ")
+	switch kind {
+	case "array", "object", "number", "string", "null":
+		return kind
+	case "bool":
+		return "boolean"
+	default:
+		return "unknown"
 	}
-	if strings.HasPrefix(err.Error(), "json: unknown field ") {
-		return "unknown_field"
-	}
-	return "malformed_json"
 }
 
 // JPEG color images normally decode to YCbCr. Sample concrete pixels to avoid
