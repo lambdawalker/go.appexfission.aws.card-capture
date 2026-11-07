@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CardDetector Demo · Invitations</title>
+  <link rel="stylesheet" href="/site.css">
+  <script src="/site.js" defer></script>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">APEXFISSION / CARDDETECTOR</p>
+    <h1>Demo invitations</h1>
+    <p>Invite testers to the isolated CardDetector demo by email.</p>
+    <button id="signin" hidden>Sign in</button>
+    <button id="signout" hidden>Sign out</button>
+    <form id="invite" hidden>
+      <label for="email">Tester email</label>
+      <input id="email" type="email" autocomplete="off" required maxlength="254" placeholder="tester@example.com">
+      <button id="send" type="submit">Send invitation</button>
+    </form>
+    <p id="status" role="status" aria-live="polite">Loading…</p>
+  </main>
+</body>
+</html>

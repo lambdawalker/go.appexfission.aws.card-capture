@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Invitation console and dedicated user pool for the isolated CardDetector demo.
+Parameters:
+  DomainName:
+    Type: String
+    Default: demo.card-detector.apexfission.com
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+Resources:
+  Users:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      UsernameAttributes: [email]
+      UsernameConfiguration:
+        CaseSensitive: false
+      AutoVerifiedAttributes: [email]
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: CardDetector demo invitation
+          EmailMessage: !Sub 'You have been invited to CardDetector. Open https://${DomainName}/ to sign in and set a new password. Username: {username}. Temporary password: {####}.'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          TemporaryPasswordValidityDays: 3
+  Admins:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: invitation-admins
+      UserPoolId: !Ref Users
+  InvitationScope:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: demo-invites
+      Name: CardDetector invitations
+      UserPoolId: !Ref Users
+      Scopes:
+        - ScopeName: write
+          ScopeDescription: Issue demo invitations as an invitation administrator
+  BrowserClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: InvitationScope
+    Properties:
+      UserPoolId: !Ref Users
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders: [COGNITO]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, demo-invites/write]
+      CallbackURLs: [!Sub 'https://${DomainName}/']
+      LogoutURLs: [!Sub 'https://${DomainName}/']
+      AccessTokenValidity: 15
+      TokenValidityUnits:
+        AccessToken: minutes
+  LoginDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub 'carddetector-demo-${AWS::AccountId}-${AWS::Region}'
+      UserPoolId: !Ref Users
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+  SiteApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      DisableExecuteApiEndpoint: true
+      Domain:
+        DomainName: !Ref DomainName
+        CertificateArn: !Ref Certificate
+        EndpointConfiguration: REGIONAL
+        SecurityPolicy: TLS_1_2
+        Route53:
+          HostedZoneId: !Ref HostedZoneId
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+      Auth:
+        Authorizers:
+          DemoSession:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !GetAtt Users.ProviderURL
+              audience: [!Ref BrowserClient]
+  Site:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.13
+      Handler: handler.handle
+      CodeUri: site/
+      Timeout: 10
+      Environment:
+        Variables:
+          DEMO_POOL_ID: !Ref Users
+          DEMO_CLIENT_ID: !Ref BrowserClient
+          DEMO_ORIGIN: !Sub 'https://${DomainName}'
+          DEMO_LOGIN: !Sub 'https://${LoginDomain}.auth.${AWS::Region}.amazoncognito.com'
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: cognito-idp:AdminCreateUser
+              Resource: !GetAtt Users.Arn
+      Events:
+        Home:
+          Type: HttpApi
+          Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /}
+        Script:
+          Type: HttpApi
+          Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /site.js}
+        Styles:
+          Type: HttpApi
+          Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /site.css}
+        Config:
+          Type: HttpApi
+          Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /config.json}
+        Session:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SiteApi
+            Method: GET
+            Path: /api/session
+            Auth:
+              Authorizer: DemoSession
+              AuthorizationScopes: [demo-invites/write]
+        Invite:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SiteApi
+            Method: POST
+            Path: /api/invitations
+            Auth:
+              Authorizer: DemoSession
+              AuthorizationScopes: [demo-invites/write]
+Outputs:
+  SiteUrl:
+    Value: !Sub 'https://${DomainName}/'
+  UserPoolId:
+    Value: !Ref Users

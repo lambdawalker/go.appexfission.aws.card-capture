@@ -254,3 +254,5 @@ may ignore. The report folder contains document values and the exact uploaded JP
 `resources/`. Keep the folder together when moving the report. The JSON report and
 diagnostic summaries contain scores and mismatch names. Redeploy the benchmark
 Lambda to enable the comparison view.
+
+For account provisioning for the standalone demo, see the [CardDetector demo invitation console](../infrastructure/demo-invitations/README.md).
