@@ -59,6 +59,10 @@ Only the selected front is eligible for early OCR. Finalization validates the
 selected evidence pair. Retention expiry, cancellation, reset and orphan cleanup still
 remove evidence under their existing rules.
 
+Malformed model field values are discarded individually. Valid sibling fields
+remain available for review, and a malformed response with no usable fields
+follows extraction failure handling.
+
 ## Administrative OCR comparison reports
 
 The capture backend stores one immutable comparison per newly reviewed capture in
