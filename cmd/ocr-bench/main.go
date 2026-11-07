@@ -46,7 +46,7 @@ func run() (runErr error) {
 	region := flag.String("region", "", "AWS region")
 	profile := flag.String("profile", "", "AWS CLI profile")
 	runs := flag.Int("runs", 10, "serial repetitions (1..1000)")
-	report := flag.String("report", "ocr-bench-report.json", "timings only report")
+	report := flag.String("report", "ocr-bench-report.html", "report path (.html or .json)")
 	environment := flag.String("environment", "", "saved deployment environment")
 	flag.Parse()
 	explicit := map[string]bool{}
@@ -342,13 +342,13 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
-	if e = os.WriteFile(*report, b, 0600); e != nil {
+	if e = writeReport(*report, b); e != nil {
 		return e
 	}
 	if e = bundleJSON(filepath.Join(bundle, "summary.json"), summary); e != nil {
 		return e
 	}
-	fmt.Println(string(b))
+	fmt.Println("Report:", *report)
 	if failed != 0 {
 		return fmt.Errorf("%d benchmark runs failed; see report", failed)
 	}
