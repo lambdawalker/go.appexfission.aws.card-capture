@@ -218,7 +218,11 @@ Each immediate numbered subdirectory (such as `0001`) must contain
 
 Redeploy the benchmark Lambda before using directory validation. Each fixture
 runs once by default. Use `--runs N` to repeat each fixture. The Lambda compares
-the extracted values to the expected JSON and returns only mismatch field names.
-Address whitespace is normalized. Other values are compared exactly. The report
+the extracted values to the expected JSON and returns the similarity score and mismatch field names.
+Validation passes at 90% similarity by default. Set a different cutoff with
+`--min-similarity N` (use 100 for an exact match after address whitespace
+normalization). Each field counts equally. The score uses character edit
+distance, with fields empty on both sides excluded. Mismatch field names
+remain visible even when the fixture passes. The report
 contains fixture results and the command exits nonzero if any validation fails.
 Explicit `--front` and `--back` still select the timing-only mode.

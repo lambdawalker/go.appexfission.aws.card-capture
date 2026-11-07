@@ -10,10 +10,11 @@ import (
 )
 
 type Request struct {
-	Expected *capture.CardData `json:"expected,omitempty"`
-	Stitched string            `json:"stitched,omitempty"`
-	Front    string            `json:"front,omitempty"`
-	Back     string            `json:"back,omitempty"`
+	MinSimilarity float64           `json:"min_similarity_pct,omitempty"`
+	Expected      *capture.CardData `json:"expected,omitempty"`
+	Stitched      string            `json:"stitched,omitempty"`
+	Front         string            `json:"front,omitempty"`
+	Back          string            `json:"back,omitempty"`
 }
 type Result struct {
 	Validation  *Validation `json:"validation,omitempty"`
@@ -39,6 +40,13 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 	}
 	valid := func(k string) bool {
 		return strings.HasPrefix(k, "inputs/") && !strings.Contains(k, "..") && len(k) < 512
+	}
+	threshold := req.MinSimilarity
+	if threshold == 0 {
+		threshold = 100
+	}
+	if threshold < 0 || threshold > 100 || (req.Expected != nil && !req.Expected.Valid()) {
+		return finish("invalid_input")
 	}
 	keys, slots := []string{req.Front, req.Back}, []string{"front", "back"}
 	if req.Stitched != "" {
@@ -82,7 +90,7 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 		return finish("extraction_failed")
 	}
 	if req.Expected != nil {
-		result.Validation = compareCard(data, *req.Expected)
+		result.Validation = compareCard(data, *req.Expected, threshold)
 	}
 	result.Success = true
 	return finish("")
