@@ -58,31 +58,43 @@ func (r Record) frontOCRCurrent(generation, now int64) bool {
 }
 
 func (s Service) workFrontOCR(ctx context.Context, r Record, generation int64) error {
-	now := s.now().Unix()
-	if r.FrontOCRGeneration != generation || r.FrontOCRDue == 0 || r.FrontOCRDue > now {
-		return nil
-	}
-	if !r.frontOCRCurrent(generation, now) {
-		before := r
+	var before Record
+	for {
+		now := s.now().Unix()
+		if r.FrontOCRGeneration != generation || r.FrontOCRDue == 0 || r.FrontOCRDue > now {
+			return nil
+		}
+		if !r.frontOCRCurrent(generation, now) {
+			before := r
+			r.Revision++
+			r.FrontOCRAsset, r.FrontOCRDue, r.Extraction = nil, 0, nil
+			return s.Store.Swap(ctx, before, r, false)
+		}
+		if r.Extraction == nil {
+			return nil
+		}
+		before = r
 		r.Revision++
-		r.FrontOCRAsset, r.FrontOCRDue, r.Extraction = nil, 0, nil
-		return s.Store.Swap(ctx, before, r, false)
-	}
-	if r.Extraction == nil {
-		return nil
-	}
-	before := r
-	r.Revision++
-	// Due doubles as the lease deadline while an attempt is running.
-	r.FrontOCRDue = now + 120
-	if r.ExtractionAttempts < 2 {
-		r.ExtractionAttempts++
-	}
-	if before.ExtractionAttempts == 1 && r.Extraction.Status == "pending" {
-		r.Extraction = &Extraction{Status: "retrying"}
-	}
-	if err := s.Store.Swap(ctx, before, r, false); err != nil {
-		return err
+		// Due doubles as the lease deadline while an attempt is running.
+		r.FrontOCRDue = now + 120
+		if r.ExtractionAttempts < 2 {
+			r.ExtractionAttempts++
+		}
+		if before.ExtractionAttempts == 1 && r.Extraction.Status == "pending" {
+			r.Extraction = &Extraction{Status: "retrying"}
+		}
+		switch err := s.Store.Swap(ctx, before, r, false); err {
+		case ErrConflict:
+			r, err = s.Store.Get(ctx, r.Owner, r.ID)
+			if err != nil {
+				return err
+			}
+			continue
+		case nil:
+		default:
+			return err
+		}
+		break
 	}
 	attempt := r.ExtractionAttempts
 	var data CardData
@@ -100,7 +112,7 @@ func (s Service) workFrontOCR(ctx context.Context, r Record, generation int64) e
 		if err != nil {
 			return err
 		}
-		now = s.now().Unix()
+		now := s.now().Unix()
 		if !current.frontOCRCurrent(generation, now) ||
 			current.FrontOCRDue != r.FrontOCRDue || current.ExtractionAttempts != attempt {
 			return nil
