@@ -206,3 +206,19 @@ The benchmark now requests `reasoning_effort: "medium"`; production extraction
 continues to default to `high`. Redeploy with `.\deploy.bat` before measuring
 this change. Keep images and run count constant when comparing against prior
 reports, and check failures/JSON validity as well as latency.
+
+### Validate exported fixtures
+
+Run `go run ./cmd/ocr-bench` from the repository root to validate the
+`./validation` directory, or pass `--directory PATH` to use a different export.
+Each immediate numbered subdirectory (such as `0001`) must contain
+`layout-1.jpg` (front), `layout-2.jpg` (back), and
+`expected-card-capture.json` with every OCR field as a string, including
+`issued_identifier`. Empty strings assert that a field is absent.
+
+Redeploy the benchmark Lambda before using directory validation. Each fixture
+runs once by default. Use `--runs N` to repeat each fixture. The Lambda compares
+the extracted values to the expected JSON and returns only mismatch field names.
+Address whitespace is normalized. Other values are compared exactly. The report
+contains fixture results and the command exits nonzero if any validation fails.
+Explicit `--front` and `--back` still select the timing-only mode.
