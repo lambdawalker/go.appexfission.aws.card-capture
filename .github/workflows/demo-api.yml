@@ -1,0 +1,24 @@
+name: Demo API
+on:
+  pull_request:
+    paths:
+      - infrastructure/demo-invitations/**
+      - .github/workflows/demo-api.yml
+  push:
+    branches: [main]
+    paths:
+      - infrastructure/demo-invitations/**
+      - .github/workflows/demo-api.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: pip install -r infrastructure/demo-invitations/ocr/requirements.txt cfn-lint
+      - run: python -m unittest discover -s infrastructure/demo-invitations -p 'test_*.py'
+      - run: cfn-lint infrastructure/demo-invitations/template.yaml
