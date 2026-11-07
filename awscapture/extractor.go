@@ -25,7 +25,7 @@ var errExtraction = errors.New("extraction_unavailable")
 // BedrockExtractor uses the Lambda role, not API keys or client-supplied endpoints.
 type BedrockExtractor struct {
 	Transport *Transport
-	// ReasoningEffort defaults to high; the standalone benchmark selects medium.
+	// ReasoningEffort defaults to high when unset. The live worker and benchmark select medium.
 	ReasoningEffort string
 	// Observe receives stage durations only, never document contents. Calls are synchronous.
 	Observe func(stage string, elapsedMS int64)
