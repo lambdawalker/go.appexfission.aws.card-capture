@@ -65,7 +65,7 @@ and finalize both IDs while OCR runs. The worker validates and retains both
 evidence files. Legacy clients can still finalize `front` plus `back`. A capture
 generation cannot mix `back` and `stitched`.
 
-After the first OCR failure, the extraction status becomes `retrying`. A ready
+After the first OCR failure, extraction remains `pending` and sets `retrying: true`. A ready
 capture can be reviewed and saved at this point. The worker queues one immediate
 retry and sets `complete` or `failed` when it finishes.
 
