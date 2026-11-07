@@ -26,6 +26,10 @@ To read an explicitly selected cached app report use `-cache FILE -project PROJE
 
 Checked-in `docs/artifacts/` samples are deterministic illustrative defaults, with unknown presence and no deployed IDs.
 
+## Live integration
+
+See [capture API, retakes and timing](docs/agents/index.md) and the [Attestra system flow](https://raw.githubusercontent.com/lambdawalker/design.attestra/main/docs/agents/journeys.md).
+
 ## Isolated OCR speed bench
 
 See [console benchmark and deployment guide](docs/ocr-bench.md) for private, standalone OCR testing from front/back JPEGs, without Android or onboarding services.
