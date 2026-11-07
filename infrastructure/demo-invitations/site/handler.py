@@ -80,6 +80,12 @@ def handle(event, _context):
     if method == "GET" and path in ASSETS:
         file, content_type = ASSETS[path]
         return response(200, Path(__file__).with_name(file).read_text(encoding="utf-8"), content_type)
+    if method == "GET" and path == "/android-config.json":
+        return response(200, {
+            "login": os.environ["DEMO_LOGIN"],
+            "clientId": os.environ["DEMO_ANDROID_CLIENT_ID"],
+            "redirect": "com.apexfission.carddetector.demo:/oauth2redirect",
+        })
     if method == "GET" and path == "/config.json":
         return response(200, {
             "login": os.environ["DEMO_LOGIN"],

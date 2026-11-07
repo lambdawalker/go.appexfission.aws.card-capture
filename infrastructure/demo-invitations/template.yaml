@@ -2,6 +2,12 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Invitation console and dedicated user pool for the isolated CardDetector demo.
 Parameters:
+  BenchBucket:
+    Type: String
+    Description: Input bucket output from the isolated OCR bench
+  BenchFunctionArn:
+    Type: String
+    Description: Function ARN of the isolated OCR bench in this region
   DomainName:
     Type: String
     Default: demo.card-detector.apexfission.com
@@ -20,7 +26,7 @@ Resources:
         AllowAdminCreateUserOnly: true
         InviteMessageTemplate:
           EmailSubject: CardDetector demo invitation
-          EmailMessage: !Sub 'You have been invited to CardDetector. Open https://${DomainName}/ to sign in and set a new password. Username: {username}. Temporary password: {####}.'
+          EmailMessage: !Sub 'You have been invited to CardDetector. In the Android demo, open Backend OCR and Sign in to set a new password. Username: {username}. Temporary password: {####}. Administrators can manage invitations at https://${DomainName}/.'
       Policies:
         PasswordPolicy:
           MinimumLength: 12
@@ -55,6 +61,30 @@ Resources:
       AccessTokenValidity: 15
       TokenValidityUnits:
         AccessToken: minutes
+  OcrScope:
+    Type: AWS::Cognito::UserPoolResourceServer
+    Properties:
+      Identifier: demo-ocr
+      Name: CardDetector demo OCR
+      UserPoolId: !Ref Users
+      Scopes:
+        - ScopeName: run
+          ScopeDescription: Run synthetic card OCR in the isolated demo
+  AndroidClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: OcrScope
+    Properties:
+      UserPoolId: !Ref Users
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders: [COGNITO]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, demo-ocr/run]
+      CallbackURLs: ['com.apexfission.carddetector.demo:/oauth2redirect']
+      AccessTokenValidity: 15
+      TokenValidityUnits:
+        AccessToken: minutes
   LoginDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
@@ -85,11 +115,135 @@ Resources:
         ThrottlingRateLimit: 5
       Auth:
         Authorizers:
+          AndroidSession:
+            IdentitySource: '$request.header.Authorization'
+            JwtConfiguration:
+              issuer: !GetAtt Users.ProviderURL
+              audience: [!Ref AndroidClient]
           DemoSession:
             IdentitySource: '$request.header.Authorization'
             JwtConfiguration:
               issuer: !GetAtt Users.ProviderURL
               audience: [!Ref BrowserClient]
+  Jobs:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: id, AttributeType: S}]
+      KeySchema: [{AttributeName: id, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: expires, Enabled: true}
+      SSESpecification: {SSEEnabled: true}
+      Tags:
+        - {Key: Project, Value: !Ref 'AWS::StackName'}
+        - {Key: Purpose, Value: Demo OCR jobs}
+  Uploads:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      LifecycleConfiguration:
+        Rules: [{Id: DemoExpiry, Status: Enabled, ExpirationInDays: 1}]
+      Tags:
+        - {Key: Project, Value: !Ref 'AWS::StackName'}
+        - {Key: Purpose, Value: Synthetic demo images}
+  UploadPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Uploads
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt Uploads.Arn, !Sub '${Uploads.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': false}}
+  OcrApi:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Create user-owned demo OCR jobs and return their results
+      Runtime: python3.13
+      Handler: ocr.api
+      CodeUri: ocr/
+      Timeout: 10
+      Environment:
+        Variables:
+          JOB_TABLE: !Ref Jobs
+          UPLOAD_BUCKET: !Ref Uploads
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref Jobs}
+        - Statement:
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub '${Uploads.Arn}/inputs/*'
+      Events:
+        Create:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SiteApi
+            Path: /api/ocr/jobs
+            Method: POST
+            Auth: {Authorizer: AndroidSession, AuthorizationScopes: [demo-ocr/run]}
+        Read:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SiteApi
+            Path: '/api/ocr/jobs/{id}'
+            Method: GET
+            Auth: {Authorizer: AndroidSession, AuthorizationScopes: [demo-ocr/run]}
+  OcrWorker:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Validate demo uploads and invoke the isolated OCR bench
+      Runtime: python3.13
+      Handler: ocr.worker
+      CodeUri: ocr/
+      Timeout: 130
+      MemorySize: 256
+      ReservedConcurrentExecutions: 2
+      EventInvokeConfig:
+        MaximumEventAgeInSeconds: 300
+        MaximumRetryAttempts: 2
+      Environment:
+        Variables:
+          JOB_TABLE: !Ref Jobs
+          BENCH_BUCKET: !Ref BenchBucket
+          BENCH_FUNCTION: !Ref BenchFunctionArn
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref Jobs}
+        - Statement:
+            - Effect: Allow
+              Action: [s3:PutObject, s3:DeleteObject]
+              Resource: !Sub 'arn:${AWS::Partition}:s3:::${BenchBucket}/inputs/demo/*'
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Ref BenchFunctionArn
+      Events:
+        Image:
+          Type: S3
+          Properties:
+            Bucket: !Ref Uploads
+            Events: s3:ObjectCreated:Put
+            Filter:
+              S3Key:
+                Rules: [{Name: prefix, Value: inputs/}, {Name: suffix, Value: .jpg}]
+  WorkerReadPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ReadDemoUploads
+      Roles: [!Ref OcrWorkerRole]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: s3:GetObject
+            Resource: !Sub '${Uploads.Arn}/inputs/*'
   Site:
     Type: AWS::Serverless::Function
     Properties:
@@ -100,6 +254,7 @@ Resources:
       Environment:
         Variables:
           DEMO_POOL_ID: !Ref Users
+          DEMO_ANDROID_CLIENT_ID: !Ref AndroidClient
           DEMO_CLIENT_ID: !Ref BrowserClient
           DEMO_ORIGIN: !Sub 'https://${DomainName}'
           DEMO_LOGIN: !Sub 'https://${LoginDomain}.auth.${AWS::Region}.amazoncognito.com'
@@ -121,6 +276,9 @@ Resources:
         Config:
           Type: HttpApi
           Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /config.json}
+        AndroidConfig:
+          Type: HttpApi
+          Properties: {ApiId: !Ref SiteApi, Method: GET, Path: /android-config.json}
         Session:
           Type: HttpApi
           Properties:

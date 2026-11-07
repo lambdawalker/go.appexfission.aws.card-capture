@@ -71,24 +71,16 @@ Ordinary timing-only invocations omit extracted fields. Validation runs may expl
 
 ## CardDetector Android demo
 
-On the workstation that has AWS CLI access to the isolated bench, run:
+The Android **Backend OCR** demo connects directly to the hosted demo API.
+Deploy the [demo stack](../infrastructure/demo-invitations/README.md) with the
+existing isolated bench bucket and Lambda ARN, invite a tester, and sign in
+from the app. Confirmed front/back captures become one color JPEG, bounded to
+1200 × 1200 and 500 KiB. The app uploads directly to S3 and polls its own job
+for OCR timing and extracted fields. Use synthetic cards only.
 
-```sh
-go run ./cmd/ocr-bench --android-bridge
-adb reverse tcp:8765 tcp:8765
-```
-
-The bridge uses the saved bench deployment, or accepts `--environment`, `--profile`,
-`--region`, `--bucket` and `--function`. It binds only to workstation loopback.
-Open **Backend OCR** in the CardDetector demo and enter the temporary pairing code
-printed by the bridge. Use synthetic cards. Confirm both sides to upload one
-stitched JPEG and see OCR timing and extracted fields in the app.
-
-Deploy this revision of the bench Lambda to enable field display without an
-expected fixture. Older deployments can still return timing and success for a
-stitched capture. The phone holds no AWS credentials. The bridge cleans up its
-temporary files and attempts to delete the S3 input after invocation. Stop it
-with Ctrl+C and remove the device mapping with `adb reverse --remove tcp:8765`.
+The workstation bridge and `--android-bridge` flag have been removed. The CLI
+continues to support its image-pair and dataset benchmarks. Demo authentication,
+job storage and HTTP routes are provisioned only by the separate demo stack.
 
 Compare memory configurations by previewing/deploying `--memory 2048`, then rerunning the same photos and repetitions. Keep region/model/photos constant. Do not attribute internet/upload time to model inference.
 
