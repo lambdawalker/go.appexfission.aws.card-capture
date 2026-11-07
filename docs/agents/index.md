@@ -65,7 +65,7 @@ The capture backend stores one immutable comparison per newly reviewed capture i
 `id-ocr-comparisons`. The record contains the final structured OCR JSON, its status,
 the first submitted review, and similarity for each OCR field. If the first review
 arrives during a retry, the report is written when extraction finishes. A failed OCR
-result contributes an empty OCR object. Subsequent review edits do not modify the report.
+result contributes blank OCR field values. Subsequent review edits do not modify the report.
 
 Scores use normalized Levenshtein similarity from 0 to 1 over Unicode code points,
 with case ignored and whitespace collapsed. A field missing on one side scores 0.
@@ -74,6 +74,8 @@ If no fields are comparable, the average is null. Origin country is retained wit
 the review and excluded from scoring because OCR does not produce that field.
 
 The capture API and worker can insert reports transactionally and have no report-read
-permissions. Attach the exported `captureComparisonAdminReadPolicy` to the designated
-AWS admin reader role. The `captureComparisonTable` output names the encrypted table.
+permissions. Set Pulumi's `captureComparisonAdminRoleArn` to the designated AWS
+IAM role ARN and attach the exported `captureComparisonAdminReadPolicy` to that role.
+The table policy denies report reads to other principals and denies all reads when
+no role is configured. The `captureComparisonTable` output names the encrypted table.
 Reports have no automatic expiration and are separate from capture evidence cleanup.
