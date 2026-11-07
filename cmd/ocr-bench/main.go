@@ -48,7 +48,11 @@ func run() (runErr error) {
 	runs := flag.Int("runs", 10, "serial repetitions (1..1000)")
 	report := flag.String("report", "ocr-bench-report.html", "report path (.html or .json)")
 	environment := flag.String("environment", "", "saved deployment environment")
+	minSimilarity := flag.Float64("min-similarity", 90, "minimum OCR similarity percentage per fixture")
 	flag.Parse()
+	if !(*minSimilarity > 0 && *minSimilarity <= 100) {
+		return fmt.Errorf("min-similarity must be greater than 0 and at most 100")
+	}
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	datasetMode := *front == "" && *back == ""
@@ -174,7 +178,14 @@ func run() (runErr error) {
 	defer cancel()
 	perFixture := make([]map[string]any, 0, len(fixtures))
 	failed := 0
+	progress := newBenchProgress(len(fixtures) * *runs)
+	defer func() {
+		if runErr != nil && progress.passed+progress.failed < progress.total {
+			progress.finish("Stopped")
+		}
+	}()
 	for _, item := range fixtures {
+		progress.clear()
 		itemBundle := bundle
 		if datasetMode {
 			fmt.Println("Validating fixture", item.name)
@@ -223,6 +234,7 @@ func run() (runErr error) {
 			uploadStart := time.Now()
 			uploaded := []string{}
 			defer func() {
+				progress.clear()
 				for _, key := range uploaded {
 					cleanup, done := context.WithTimeout(context.Background(), 15*time.Second)
 					_, e := aws(cleanup, "s3api", "delete-object", "--bucket", *bucket, "--key", prefix+key)
@@ -244,7 +256,14 @@ func run() (runErr error) {
 				return e
 			}
 			defer os.RemoveAll(temp)
-			payload, _ := json.Marshal(ocrbench.Request{Stitched: prefix + "stitched.jpg", Expected: item.expected})
+			invokeRequest := ocrbench.Request{Stitched: prefix + "stitched.jpg", Expected: item.expected}
+			if datasetMode {
+				invokeRequest.MinSimilarity = *minSimilarity
+			}
+			payload, e := json.Marshal(invokeRequest)
+			if e != nil {
+				return e
+			}
 			request := filepath.Join(temp, "request.json")
 			if e = os.WriteFile(request, payload, 0600); e != nil {
 				return e
@@ -261,12 +280,16 @@ func run() (runErr error) {
 			validationFailures := 0
 			localStage = "invocation"
 			for i := 0; i < *runs; i++ {
+				progress.show("Running")
 				resultPath := filepath.Join(temp, fmt.Sprintf("response-%d.json", i))
 				started := time.Now()
 				meta, stderr, invokeErr := invokeAWS(ctx, "lambda", "invoke", "--function-name", *fn, "--cli-binary-format", "raw-in-base64-out", "--payload", "fileb://"+request, "--cli-read-timeout", "100", "--output", "json", "--no-cli-pager", "--log-type", "Tail", resultPath)
 				r := sample{ClientMS: time.Since(started).Milliseconds()}
 				body, _ := os.ReadFile(resultPath)
 				r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
+				if datasetMode && r.Validation != nil && r.Validation.MinSimilarity != *minSimilarity {
+					r.Validation = nil
+				}
 				attemptDir := filepath.Join(bundle, fmt.Sprintf("attempt-%03d", i+1))
 				requestID, tail, httpStatus := invocationTail(meta)
 				exitStatus := 0
@@ -289,7 +312,10 @@ func run() (runErr error) {
 				if e = bundleJSON(filepath.Join(attemptDir, "cloud", "result.json"), r.Result); e != nil {
 					return e
 				}
-				fmt.Printf("Cloud logs: %s\n", cloud.Status)
+				progress.clear()
+				if !progress.interactive {
+					fmt.Printf("Cloud logs: %s\n", cloud.Status)
+				}
 
 				clear(body)
 				clear(stderr)
@@ -302,10 +328,12 @@ func run() (runErr error) {
 					fmt.Fprintln(os.Stderr)
 				}
 
-				if datasetMode && (!r.Success || r.Validation == nil || !r.Validation.Passed) {
+				passed := r.Success && (!datasetMode || (r.Validation != nil && r.Validation.Passed))
+				if datasetMode && !passed {
 					validationFailures++
 					if r.Validation != nil {
-						fmt.Printf("Fixture %s mismatched fields: %v\n", item.name, r.Validation.Mismatches)
+						fmt.Printf("Fixture %s scored %.2f%% (minimum %.2f%%). Mismatched fields: %v\n",
+							item.name, r.Validation.Similarity, *minSimilarity, r.Validation.Mismatches)
 					} else if r.Success {
 						fmt.Fprintln(os.Stderr, "Validation result missing. Redeploy the OCR benchmark Lambda.")
 					}
@@ -318,7 +346,10 @@ func run() (runErr error) {
 						warm = append(warm, r.ClientMS)
 					}
 				}
-				fmt.Printf("%d/%d success=%t cold=%t total=%dms read=%dms extract=%dms client=%dms error=%s\n", i+1, *runs, r.Success, r.ColdStart, r.TotalMS, r.ReadMS, r.ExtractMS, r.ClientMS, r.Error)
+				progress.record(passed)
+				if !progress.interactive {
+					fmt.Printf("%d/%d passed=%t cold=%t client=%dms error=%s\n", i+1, *runs, passed, r.ColdStart, r.ClientMS, r.Error)
+				}
 			}
 			localStage = "report"
 			summary := map[string]any{"schema": 1, "upload_ms": uploadMS, "image_prepare_ms": imagePrepareMS, "upload_bytes": info.Size(), "upload_width_px": imageConfig.Width, "upload_height_px": imageConfig.Height, "input_color_mode": "grayscale", "input_layout": "front_above_back", "runs": samples, "successes": success, "failures": *runs - success, "client_p50_ms": percentile(all, .5), "client_p90_ms": percentile(all, .9), "client_p95_ms": percentile(all, .95), "warm_p50_ms": percentile(warm, .5), "warm_p95_ms": percentile(warm, .95), "warm_successes": len(warm)}
@@ -334,9 +365,10 @@ func run() (runErr error) {
 			return fmt.Errorf("benchmark input %q: %w", item.name, err)
 		}
 	}
+	progress.finish("Finished")
 	summary := perFixture[0]
 	if datasetMode {
-		summary = map[string]any{"schema": 1, "fixtures": perFixture, "fixture_count": len(fixtures), "validation_failures": failed, "validation_passes": len(fixtures)**runs - failed}
+		summary = map[string]any{"schema": 1, "fixtures": perFixture, "fixture_count": len(fixtures), "min_similarity_pct": *minSimilarity, "validation_failures": failed, "validation_passes": len(fixtures)**runs - failed}
 	}
 	b, e := json.MarshalIndent(summary, "", "  ")
 	if e != nil {

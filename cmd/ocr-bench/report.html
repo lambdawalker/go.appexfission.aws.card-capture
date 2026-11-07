@@ -64,7 +64,7 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <tbody>{{range $i, $run := .Runs}}
 <tr><td>{{next $i}}</td><td>{{if $run.ColdStart}}Cold{{else}}Warm{{end}}</td><td>{{ms $run.ClientMS}}</td><td>{{ms $run.InferenceMS}}</td><td>{{ms $run.TotalMS}}</td>
 <td class="{{if and $run.Success (or (not $run.Validation) $run.Validation.Passed)}}ok{{else}}bad{{end}}">{{.Status}}</td>
-<td>{{with .Validation}}{{range .Mismatches}}<div>{{.}}</div>{{end}}{{end}}{{with .Diagnostic}}{{.Message}}{{else}}{{.Error}}{{end}}</td></tr>
+<td>{{with .Validation}}{{printf "%.2f" .Similarity}}% similarity · {{printf "%.2f" .MinSimilarity}}% required{{range .Mismatches}}<div>{{.}}</div>{{end}}{{end}}{{with .Diagnostic}}{{.Message}}{{else}}{{.Error}}{{end}}</td></tr>
 {{end}}</tbody></table></div>
 </div>
 </details>
