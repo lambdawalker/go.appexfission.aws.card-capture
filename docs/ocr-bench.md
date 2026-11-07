@@ -67,7 +67,28 @@ Use quoted paths on Windows. Each execution uploads once under a random prefix a
 
 Reports contain per-attempt success/failure, S3-read, preparation, complete inference-response, extraction, server-total and client-observed milliseconds. Upload is measured separately. Client time includes invocation/network/init overhead. `cold_start` marks the first request handled by that execution environment, not a promise of a forced cold start. Warm percentiles exclude those first requests. Percentiles use nearest rank over successful runs; failures are reported and produce a nonzero exit status. No automatic retry hides failed samples. More repetitions are needed for meaningful tail estimates; start sequentially before testing concurrency.
 
-Extracted values are deliberately discarded; reports contain no card fields, image bytes, credentials or signed URLs. This baseline does not score field accuracy or support alternate inference parameters yet. Use known representative front/back pairs and verify extraction accuracy separately before adopting performance changes.
+Ordinary timing-only invocations omit extracted fields. Validation runs may explicitly request extracted fields for the local HTML comparison. Keep those reports private and use synthetic inputs.
+
+## CardDetector Android demo
+
+On the workstation that has AWS CLI access to the isolated bench, run:
+
+```sh
+go run ./cmd/ocr-bench --android-bridge
+adb reverse tcp:8765 tcp:8765
+```
+
+The bridge uses the saved bench deployment, or accepts `--environment`, `--profile`,
+`--region`, `--bucket` and `--function`. It binds only to workstation loopback.
+Open **Backend OCR** in the CardDetector demo and enter the temporary pairing code
+printed by the bridge. Use synthetic cards. Confirm both sides to upload one
+stitched JPEG and see OCR timing and extracted fields in the app.
+
+Deploy this revision of the bench Lambda to enable field display without an
+expected fixture. Older deployments can still return timing and success for a
+stitched capture. The phone holds no AWS credentials. The bridge cleans up its
+temporary files and attempts to delete the S3 input after invocation. Stop it
+with Ctrl+C and remove the device mapping with `adb reverse --remove tcp:8765`.
 
 Compare memory configurations by previewing/deploying `--memory 2048`, then rerunning the same photos and repetitions. Keep region/model/photos constant. Do not attribute internet/upload time to model inference.
 
