@@ -51,6 +51,7 @@ type Record struct {
 	Owner                 string            `json:"-"`
 	EvidenceVersion       int64             `json:"evidence_version"`
 	Revision              int64             `json:"revision"`
+	ImageRevision         int64             `json:"image_revision,omitempty"`
 	PolicySnapshot        *Policy           `json:"policy,omitempty"`
 	ExpectedPolicyVersion string            `json:"-"`
 	PolicyVersion         string            `json:"policy_version"`
@@ -66,6 +67,7 @@ type Record struct {
 	Error                 string            `json:"error,omitempty"`
 	CreateKey             string            `json:"-"`
 	FinalizeKey           string            `json:"-"`
+	RetakeKey             string            `json:"-"`
 	RetryKey              string            `json:"-"`
 	Generation            int64             `json:"-"`
 	Attempts              int               `json:"-"`

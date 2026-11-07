@@ -168,6 +168,12 @@ func (h Handler) Handle(ctx context.Context, req events.APIGatewayV2HTTPRequest)
 		}
 		r, e = h.Service.Finalize(ctx, owner, id, in)
 		status = 202
+	case "retake":
+		var in capture.RetakeRequest
+		if e = decode(req, &in); e != nil {
+			return fail(e), nil
+		}
+		r, e = h.Service.Retake(ctx, owner, id, in)
 	case "cancel":
 		var in struct{}
 		if e = decode(req, &in); e != nil {
