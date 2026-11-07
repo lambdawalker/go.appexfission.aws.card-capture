@@ -37,7 +37,7 @@ func TestHTMLReportRendersBothModes(t *testing.T) {
 
 func TestHTMLJSONComparison(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.html")
-	pairs := map[string][]*jsonComparison{"0001": {{Expected: capture.CardData{FullName: "Élodie"}, Actual: capture.CardData{FullName: "<script>alert(1)</script>"}}}}
+	pairs := map[string][]*jsonComparison{"0001": {{Expected: capture.CardData{FullName: "Élodie"}, Actual: &capture.CardData{FullName: "<script>alert(1)</script>"}}}}
 	if err := writeReport(path, []byte(`{"fixtures":[{"fixture":"0001","runs":[{"success":true}]}]}`), pairs); err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestHTMLJSONComparison(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(html)
-	if strings.Count(body, `class="json-line json-changed"`) != 2 || !strings.Contains(body, "Élodie") || strings.Contains(body, "<script>alert(1)</script>") || !strings.Contains(body, "Compare JSON") {
+	if strings.Count(body, `class="json-line json-changed"`) != 2 || !strings.Contains(body, "Élodie") || strings.Contains(body, "<script>alert(1)</script>") || !strings.Contains(body, "OCR result") {
 		t.Fatal("comparison did not render both values and highlight only changed lines")
 	}
 }

@@ -227,8 +227,8 @@ remain visible even when the fixture passes. The report
 contains fixture results and the command exits nonzero if any validation fails.
 Explicit `--front` and `--back` still select the timing-only mode.
 
-In an HTML validation report, expand **Compare JSON** under a run to see
-the expected and extracted values side by side. Highlighted lines show exact
+In an HTML validation report, the selected test shows expected and extracted
+JSON side by side below the timing table, with the uploaded image on the right. Highlighted lines show exact
 text differences, including formatting differences that similarity scoring
 may ignore. The report folder contains document values and the exact uploaded JPEGs in
 `resources/`. Keep the folder together when moving the report. The JSON report and

@@ -25,7 +25,8 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 }).Parse(reportHTML))
 
 type jsonComparison struct {
-	Expected, Actual capture.CardData
+	Expected capture.CardData
+	Actual   *capture.CardData
 }
 
 type jsonLine struct {
@@ -40,7 +41,11 @@ func (c jsonComparison) Lines() []jsonLine {
 		_ = json.Unmarshal(data, &values)
 		return values
 	}
-	expected, actual := fields(c.Expected), fields(c.Actual)
+	expected := fields(c.Expected)
+	var actual map[string]json.RawMessage
+	if c.Actual != nil {
+		actual = fields(*c.Actual)
+	}
 	keys := make([]string, 0, len(expected))
 	for key := range expected {
 		keys = append(keys, key)
@@ -49,7 +54,7 @@ func (c jsonComparison) Lines() []jsonLine {
 	lines := make([]jsonLine, 0, len(keys))
 	for i, key := range keys {
 		want, got := string(expected[key]), string(actual[key])
-		lines = append(lines, jsonLine{Key: key, Expected: want, Actual: got, Changed: want != got, Comma: i < len(keys)-1})
+		lines = append(lines, jsonLine{Key: key, Expected: want, Actual: got, Changed: c.Actual != nil && want != got, Comma: i < len(keys)-1})
 	}
 	return lines
 }
