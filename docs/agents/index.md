@@ -74,3 +74,9 @@ private versioned evidence bucket even after a retake clears the selected IDs.
 Only the selected front is eligible for early OCR. Finalization validates the
 selected evidence pair. Retention expiry, cancellation, reset and orphan cleanup still
 remove evidence under their existing rules.
+
+## OCR logging tech debt
+
+Remove the temporary `mock_value` attribute from `capture.inference_field_rejected`
+before processing real documents. It records rejected model values for mock-data
+debugging. Keep the schema field name, JSON type, and rejection reason.

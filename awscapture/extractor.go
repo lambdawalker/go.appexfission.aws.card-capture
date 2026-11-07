@@ -130,46 +130,72 @@ func (x BedrockExtractor) extract(ctx context.Context, images []capture.CardImag
 		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "object_shape_or_size")
 		return capture.CardData{}, errExtraction
 	}
+	return decodeCardJSON(ctx, slog.Default(), text)
+}
+
+func decodeCardJSON(ctx context.Context, logger *slog.Logger, text string) (capture.CardData, error) {
 	decoder := json.NewDecoder(strings.NewReader(text))
-	decoder.DisallowUnknownFields()
-	var data capture.CardData
-	if err := decoder.Decode(&data); err != nil {
-		slog.LogAttrs(ctx, slog.LevelWarn, "capture.inference_failed", append(
-			[]slog.Attr{slog.String("stage", "card_json")}, cardJSONDecodeAttrs(err)...,
-		)...)
-		return capture.CardData{}, errExtraction
-	}
-	if !data.Valid() {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "invalid_card_value")
+	var fields map[string]json.RawMessage
+	if err := decoder.Decode(&fields); err != nil {
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "malformed_json")
 		return capture.CardData{}, errExtraction
 	}
 	var extra any
 	if decoder.Decode(&extra) != io.EOF {
-		slog.Warn("capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "trailing_content")
+		return capture.CardData{}, errExtraction
+	}
+
+	var data capture.CardData
+	targets := map[string]*string{
+		"full_name": &data.FullName, "given_names": &data.GivenNames, "surnames": &data.Surnames,
+		"birth_date": &data.BirthDate, "document_number": &data.DocumentNumber,
+		"issued_identifier": &data.PersonalNumber, "address": &data.Address,
+		"issue_date": &data.IssueDate, "expiry_date": &data.ExpiryDate, "issuing_country": &data.IssuingCountry,
+	}
+	rejected := false
+	for key, raw := range fields {
+		field := strings.ToLower(key)
+		target := targets[field]
+		if target == nil {
+			rejected = true
+			logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json", "reason", "unknown_field")
+			continue
+		}
+		if key != field && fields[field] != nil {
+			continue // Prefer the schema spelling if the model sent both.
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			rejected = true
+			var typeErr *json.UnmarshalTypeError
+			kind := "unknown"
+			if errors.As(err, &typeErr) {
+				kind = cardJSONValueType(typeErr.Value)
+			}
+			logRejectedOCRField(ctx, logger, field, "wrong_value_type", kind, raw)
+			continue
+		}
+		previous := *target
+		*target = value
+		if !data.Valid() {
+			*target = previous
+			rejected = true
+			logRejectedOCRField(ctx, logger, field, "invalid_card_value", "string", raw)
+		}
+	}
+	if rejected && data.Empty() {
+		logger.WarnContext(ctx, "capture.inference_failed", "stage", "card_json", "reason", "no_valid_fields")
 		return capture.CardData{}, errExtraction
 	}
 	return data, nil
 }
 
-// Decoder errors can contain model-generated names and literal values.
-// Only schema field names and fixed JSON type labels may reach CloudWatch.
-func cardJSONDecodeAttrs(err error) []slog.Attr {
-	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
-		attrs := []slog.Attr{slog.String("reason", "wrong_value_type")}
-		switch field := strings.ToLower(typeErr.Field); field {
-		case "full_name", "given_names", "surnames", "birth_date", "document_number",
-			"issued_identifier", "address", "issue_date", "expiry_date", "issuing_country":
-			return append(attrs, slog.String("field", field),
-				slog.String("json_type", cardJSONValueType(typeErr.Value)),
-				slog.String("expected_type", "string"))
-		}
-		return attrs
-	}
-	if strings.HasPrefix(err.Error(), "json: unknown field ") {
-		return []slog.Attr{slog.String("reason", "unknown_field")}
-	}
-	return []slog.Attr{slog.String("reason", "malformed_json")}
+func logRejectedOCRField(ctx context.Context, logger *slog.Logger, field, reason, kind string, raw json.RawMessage) {
+	// Temporary mock-data diagnostic. Remove mock_value before real documents are used.
+	logger.WarnContext(ctx, "capture.inference_field_rejected", "stage", "card_json",
+		"reason", reason, "field", field, "json_type", kind, "expected_type", "string",
+		"mock_value", string(raw))
 }
 
 func cardJSONValueType(value string) string {
