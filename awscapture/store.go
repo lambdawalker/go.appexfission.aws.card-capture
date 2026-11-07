@@ -40,6 +40,9 @@ func (s *Store) get(ctx context.Context, id string, out any) error {
 	if len(r.Item) == 0 {
 		return capture.ErrNotFound
 	}
+	if record, ok := out.(*capture.Record); ok {
+		return decodeRecord(r.Item, record)
+	}
 	return attributevalue.UnmarshalMap(r.Item, out)
 }
 func (s *Store) Account(ctx context.Context, owner string) (capture.Account, error) {
@@ -88,6 +91,15 @@ func recordItem(r capture.Record) (map[string]types.AttributeValue, error) {
 	}
 	return m, nil
 }
+
+// The lowercase GSI keys are scheduling projections, separate from the
+// record's Work and Due fields. The SDK decodes attribute names case-insensitively.
+func decodeRecord(item map[string]types.AttributeValue, record *capture.Record) error {
+	delete(item, "work")
+	delete(item, "due")
+	return attributevalue.UnmarshalMap(item, record)
+}
+
 func nextJob(r capture.Record) (capture.Job, int64) {
 	if r.FrontOCRDue != 0 && (r.State == "uploading" || r.State == "finalizing" || r.State == "ready") &&
 		(r.Work == "" || r.FrontOCRDue < r.Due) {
@@ -220,7 +232,7 @@ func (s *Store) Pending(ctx context.Context, now int64, send func(capture.Job) e
 			}
 			for _, m := range out.Items {
 				var r capture.Record
-				if e = attributevalue.UnmarshalMap(m, &r); e != nil {
+				if e = decodeRecord(m, &r); e != nil {
 					return e
 				}
 				job, _ := nextJob(r)
