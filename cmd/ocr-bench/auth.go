@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,4 +52,27 @@ func authenticate(profile string) ([]byte, error) {
 		return nil, fmt.Errorf("verify AWS identity after SSO sign-in: %w", err)
 	}
 	return identity, nil
+}
+
+func verifyAccount(profile, region, expected string) error {
+	if profile != "" {
+		if err := os.Setenv("AWS_PROFILE", profile); err != nil {
+			return err
+		}
+	}
+	if err := os.Setenv("AWS_DEFAULT_REGION", region); err != nil {
+		return err
+	}
+	identity, err := authenticate(profile)
+	if err != nil {
+		return err
+	}
+	var who struct{ Account string }
+	if json.Unmarshal(identity, &who) != nil || who.Account == "" {
+		return fmt.Errorf("cannot verify AWS account")
+	}
+	if expected != "" && who.Account != expected {
+		return fmt.Errorf("signed-in AWS account differs from saved deployment")
+	}
+	return nil
 }

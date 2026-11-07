@@ -93,9 +93,9 @@ func Run(ctx context.Context, req Request, read Reader, extractor capture.Extrac
 	}
 	if req.Expected != nil {
 		result.Validation = compareCard(data, *req.Expected, threshold)
-		if req.IncludeExtraction {
-			result.Extraction = &data
-		}
+	}
+	if req.IncludeExtraction {
+		result.Extraction = &data
 	}
 	result.Success = true
 	return finish("")

@@ -50,6 +50,7 @@ func run() (runErr error) {
 	report := flag.String("report", "ocr-bench-report/index.html", "report path (.html or .json)")
 	environment := flag.String("environment", "", "saved deployment environment")
 	minSimilarity := flag.Float64("min-similarity", 90, "minimum OCR similarity percentage per fixture")
+	bridge := flag.Bool("android-bridge", false, "serve the Android demo on desktop loopback port 8765")
 	flag.Parse()
 	if !(*minSimilarity > 0 && *minSimilarity <= 100) {
 		return fmt.Errorf("min-similarity must be greater than 0 and at most 100")
@@ -64,7 +65,7 @@ func run() (runErr error) {
 		*runs = 1
 	}
 	fixtures := []fixture{{front: *front, back: *back}}
-	if datasetMode {
+	if datasetMode && !*bridge {
 		var err error
 		fixtures, err = loadFixtures(*directory)
 		if err != nil {
@@ -93,21 +94,6 @@ func run() (runErr error) {
 	} else {
 		root = cwd
 	}
-	bundle := filepath.Join(root, ".deploy", "ocr-bench", "runs", time.Now().UTC().Format("20060102T150405.000000000Z"))
-	if e = bundleJSON(filepath.Join(bundle, "manifest.json"), map[string]any{"schema": 1, "environment": *environment, "started_at": time.Now().UTC(), "runs_requested": *runs}); e != nil {
-		return e
-	}
-	fmt.Println("Diagnostic bundle:", bundle)
-	localStage := "resolve_inputs"
-	defer func() {
-		status := "succeeded"
-		if runErr != nil {
-			status = "failed"
-		}
-		if e := bundleJSON(filepath.Join(bundle, "local", "completion.json"), map[string]any{"stage": localStage, "status": status, "finished_at": time.Now().UTC(), "note": "See attempt local/cloud files for diagnostics; setup failures occur before an attempt is created."}); e != nil {
-			fmt.Fprintln(os.Stderr, "Could not save bundle completion:", e)
-		}
-	}()
 	if *profile == "" {
 		*profile = saved.Profile
 	}
@@ -139,6 +125,30 @@ func run() (runErr error) {
 	if *fn, e = askMissing(reader, "OCR Lambda function", *fn); e != nil {
 		return e
 	}
+	if *bridge {
+		if !datasetMode || explicit["directory"] || explicit["runs"] || explicit["report"] {
+			return fmt.Errorf("android bridge accepts deployment settings only")
+		}
+		if err := verifyAccount(*profile, *region, saved.Account); err != nil {
+			return err
+		}
+		return serveAndroidBridge(*bucket, *fn)
+	}
+	bundle := filepath.Join(root, ".deploy", "ocr-bench", "runs", time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if e = bundleJSON(filepath.Join(bundle, "manifest.json"), map[string]any{"schema": 1, "environment": *environment, "started_at": time.Now().UTC(), "runs_requested": *runs}); e != nil {
+		return e
+	}
+	fmt.Println("Diagnostic bundle:", bundle)
+	localStage := "resolve_inputs"
+	defer func() {
+		status := "succeeded"
+		if runErr != nil {
+			status = "failed"
+		}
+		if e := bundleJSON(filepath.Join(bundle, "local", "completion.json"), map[string]any{"stage": localStage, "status": status, "finished_at": time.Now().UTC(), "note": "See attempt local/cloud files for diagnostics; setup failures occur before an attempt is created."}); e != nil {
+			fmt.Fprintln(os.Stderr, "Could not save bundle completion:", e)
+		}
+	}()
 	if !datasetMode {
 		if *front == "" {
 			*front = chooseImage(root, "front", saved.Front)
@@ -156,24 +166,12 @@ func run() (runErr error) {
 	}
 	fmt.Printf("OCR benchmark • environment %s\nProfile: %s • region: %s\nBucket: %s\nFunction: %s\n", *environment, *profile, *region, *bucket, *fn)
 
-	if *profile != "" {
-		os.Setenv("AWS_PROFILE", *profile)
-	}
-	os.Setenv("AWS_DEFAULT_REGION", *region)
 	if e = bundleJSON(filepath.Join(bundle, "local", "setup.json"), map[string]any{"environment": *environment, "profile": *profile, "region": *region, "bucket": *bucket, "function": *fn, "expected_account": saved.Account, "runs": *runs}); e != nil {
 		return e
 	}
 	localStage = "authentication"
-	identity, e := authenticate(*profile)
-	if e != nil {
+	if e = verifyAccount(*profile, *region, saved.Account); e != nil {
 		return e
-	}
-	var who struct{ Account string }
-	if json.Unmarshal(identity, &who) != nil || who.Account == "" {
-		return fmt.Errorf("cannot verify AWS account")
-	}
-	if saved.Account != "" && who.Account != saved.Account {
-		return fmt.Errorf("signed-in AWS account differs from saved deployment")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(*runs)*120*time.Second*time.Duration(len(fixtures))+time.Minute)
 	defer cancel()

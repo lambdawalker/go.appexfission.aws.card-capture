@@ -89,3 +89,13 @@ func TestStitchedReadsOnceAndClears(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractionRequiresExplicitOptInWithoutFixture(t *testing.T) {
+	for _, include := range []bool{false, true} {
+		r := Run(context.Background(), Request{Front: "inputs/f", Back: "inputs/b", IncludeExtraction: include},
+			func(context.Context, string) ([]byte, error) { return []byte{1}, nil }, extractor{})
+		if !r.Success || (r.Extraction != nil) != include {
+			t.Fatalf("include=%v: %+v", include, r)
+		}
+	}
+}
