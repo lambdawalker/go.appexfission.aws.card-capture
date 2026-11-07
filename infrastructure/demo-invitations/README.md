@@ -17,10 +17,12 @@ Use the zone that will contain the site alias and ACM validation record.
 From this directory, using the bench region and the correct AWS account:
 
 ```sh
+sam build
 sam validate --lint
 sam deploy --stack-name carddetector-demo-invitations \
   --region us-east-2 --resolve-s3 --capabilities CAPABILITY_IAM \
-  --parameter-overrides HostedZoneId=YOUR_HOSTED_ZONE_ID
+  --parameter-overrides HostedZoneId=YOUR_HOSTED_ZONE_ID \
+    BenchBucket=YOUR_BENCH_INPUT_BUCKET BenchFunctionArn=YOUR_BENCH_FUNCTION_ARN
 ```
 
 The stack provisions a certificate, HTTPS API and dedicated user pool. It does
@@ -49,13 +51,45 @@ can use `admin-create-user --message-action RESEND`. Use
 `admin-disable-user` to prevent a tester from signing in again. Cognito's default
 email delivery is intended for low-volume testing.
 
-The dedicated pool is the identity source for the planned standalone Android
-demo. The invitation site issues accounts only. The Android public client,
-authenticated OCR upload and asynchronous result API are separate work.
+## Independent Android demo
+
+Deploy the isolated bench first. Pass its input bucket and function ARN to this
+stack in the same AWS account and region. Deploy a bench revision that supports
+`include_extraction`. Run `sam build` to package the worker's Pillow dependency.
+Then build/install the Android demo, open **Backend OCR**, sign in with an invited
+email, and capture a synthetic card. The workstation can be offline.
+
+The app reads `/android-config.json` and uses a separate public Cognito client
+with authorization code, PKCE and `demo-ocr/run` scope. The callback is
+`com.apexfission.carddetector.demo:/oauth2redirect`. No client secret is packaged
+in the app. Testers have no invitation-administrator privileges.
+
+`POST /api/ocr/jobs` accepts `bytes` and a base64 SHA-256 checksum, and returns an
+`id` and a short-lived `uploadUrl`. The signed PUT requires `Content-Type:
+image/jpeg`, `Content-Length`, `x-amz-checksum-sha256`, and `If-None-Match: *`.
+An upload can only be created once. An S3 notification starts the worker, which
+validates the JPEG dimensions and checksum, invokes the existing bench Lambda,
+and stores its result. `GET /api/ocr/jobs/{id}` returns `uploading`, `processing`,
+`complete`, or `failed`, and the bench `result` when available. The API checks
+ownership and expiry on every read, and permits one new job per user per minute.
+Duplicate upload notifications do not rerun inference. Jobs stuck after an
+interrupted worker report `job_timed_out` after five minutes.
+
+The upload bucket retains synthetic images for one day; DynamoDB results have a
+one-day TTL and expiry is also enforced by the API. AWS expiry deletion is
+asynchronous. Temporary copies in the bench input bucket are deleted after
+inference, with its lifecycle as fallback. Worker concurrency is bounded to two.
+The separate demo stack does not participate in the feature's Go package imports.
+
+For deployment validation, sign in as an invited tester, scan, and check that
+fields and timings appear. Sign in as a second tester and verify that the first
+job ID returns 404. Verify that a tester cannot issue invitations. Live AWS and
+Android device checks require the deployed stack and a newly built APK.
 
 ## Local checks
 
 ```sh
+python3 -m pip install boto3 -r ocr/requirements.txt
 python3 -m unittest discover -s . -p 'test_*.py'
 node --check site/site.js
 ```
