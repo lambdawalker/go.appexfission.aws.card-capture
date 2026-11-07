@@ -299,11 +299,10 @@ func run() (runErr error) {
 				body, _ := os.ReadFile(resultPath)
 				r.Result, r.Diagnostic = diagnoseInvoke(meta, body, stderr, invokeErr, *fn)
 				if invokeRequest.IncludeExtraction {
-					var comparison *jsonComparison
-					if r.Result.Extraction != nil {
-						comparison = &jsonComparison{Expected: *item.expected, Actual: *r.Result.Extraction}
-					}
-					comparisons[item.name] = append(comparisons[item.name], comparison)
+					comparisons[item.name] = append(comparisons[item.name], &jsonComparison{
+						Expected: *item.expected,
+						Actual:   r.Result.Extraction,
+					})
 				}
 				r.Result.Extraction = nil
 				clear(body)

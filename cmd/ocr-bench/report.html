@@ -36,7 +36,13 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 .json-pane{min-width:0}.json-pane pre{background:#f5f8fd;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;margin:4px 0;font-size:.83rem}
 .json-line{display:block;min-width:max-content}.json-key{color:#2158a3}.json-value{color:#086343}
 .json-changed{background:#fff0c2;border-left:3px solid #a66d00}.json-compare{margin-top:12px}
-.upload-preview{margin:12px 0}.upload-preview img{display:block;max-width:min(100%,460px);height:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
+.evidence{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:16px;align-items:start;margin-top:20px}
+.evidence h3{font-size:1rem}
+.upload-preview{margin:0;position:sticky;top:16px}
+.upload-preview img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
+.json-empty{padding:12px;background:#f5f8fd;border:1px solid var(--line);border-radius:8px;margin-top:4px}
+@media(max-width:900px){.evidence{grid-template-columns:minmax(0,1fr)}.upload-preview{position:static;justify-self:end;max-width:420px}}
+@media(max-width:560px){.json-grid{grid-template-columns:minmax(0,1fr)}}
 .test-layout{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);gap:18px;align-items:start;margin-bottom:16px}
 .test-list{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;background:white;border:1px solid var(--line);border-radius:14px;padding:12px}
 .test-list h2{font-size:1rem;padding:4px 8px 10px}
@@ -77,8 +83,6 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <p class="muted">{{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</p>
 <p class="legend"><span class="key">Client invocation</span><span class="key inference">Model inference</span><span>Shared scale up to {{ms $.Scale}}</span></p>
 <p class="muted">{{.Width}} × {{.Height}} px · {{.Bytes}} bytes · local preparation {{ms .PrepareMS}} · upload {{ms .UploadMS}}</p>
-{{with .Preview}}<details class="upload-preview"><summary>Preview uploaded image</summary>
-<img src="{{.}}" loading="lazy" alt="Stitched front and back image sent for OCR"></details>{{end}}
 <div class="chart" aria-label="Latency by run">
 {{range $i, $run := .Runs}}
 <div class="row"><span>#{{next $i}}</span><div class="bars">
@@ -94,20 +98,30 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 <td class="{{if and $run.Success (or (not $run.Validation) $run.Validation.Passed)}}ok{{else}}bad{{end}}">{{.Status}}</td>
 <td>{{with .Validation}}{{printf "%.2f" .Similarity}}% similarity · {{printf "%.2f" .MinSimilarity}}% required{{range .Mismatches}}<div>{{.}}</div>{{end}}{{end}}{{with .Diagnostic}}{{.Message}}{{else}}{{.Error}}{{end}}</td></tr>
 {{end}}</tbody></table></div>
+<div class="evidence">
+<div>
+<h3>JSON comparison</h3>
 {{range $i, $run := .Runs}}
-{{with $run.Comparison}}
-{{$lines := .Lines}}
-<details class="json-compare">
-<summary>Run {{next $i}} · Compare JSON</summary>
+<div class="json-compare">
+{{if gt (len $fixture.Runs) 1}}<p class="muted">Run {{next $i}}</p>{{end}}
 <div class="json-grid">
-<div class="json-pane"><h3>Expected</h3><pre><code>{
-{{range $lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Expected}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre></div>
-<div class="json-pane"><h3>OCR result</h3><pre><code>{
-{{range $lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Actual}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre></div>
+<div class="json-pane"><h3>Expected output</h3>
+{{with $run.Comparison}}<pre><code>{
+{{range .Lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Expected}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre>
+{{else}}<p class="muted json-empty">Expected JSON is available for directory validation runs.</p>{{end}}
 </div>
-</details>
+<div class="json-pane"><h3>OCR result</h3>
+{{if and $run.Comparison $run.Comparison.Actual}}<pre><code>{
+{{range $run.Comparison.Lines}}<span class="json-line{{if .Changed}} json-changed{{end}}">  <span class="json-key">"{{.Key}}"</span>: <span class="json-value">{{.Actual}}</span>{{if .Comma}},{{end}}</span>{{end}}}</code></pre>
+{{else}}<p class="muted json-empty">{{if not $run.Success}}The run did not return an extraction.{{else if $run.Comparison}}The Lambda did not return extracted JSON. Redeploy the benchmark Lambda and rerun this test.{{else}}OCR JSON is available for directory validation runs.{{end}}</p>{{end}}
+</div>
+</div>
+</div>
 {{end}}
-{{end}}
+</div>
+{{with .Preview}}<figure class="upload-preview"><figcaption><h3>Uploaded image</h3></figcaption>
+<img src="{{.}}" loading="lazy" alt="Stitched front and back image sent for OCR"></figure>{{end}}
+</div>
 </section>
 {{end}}
 </div>
