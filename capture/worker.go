@@ -50,6 +50,9 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 	if e != nil {
 		return e
 	}
+	if job.Work == "front-ocr" {
+		return s.workFrontOCR(ctx, r, job.Generation)
+	}
 	if r.Generation != job.Generation || r.Work != job.Work {
 		return nil
 	}
@@ -67,6 +70,7 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 			return nil
 		}
 		before := r
+		r.FrontOCRAsset, r.FrontOCRDue = nil, 0
 		r.Extraction = nil
 		r.Reviewed = nil
 		r.State = "expired"
@@ -97,6 +101,7 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 	// evidence retention relative to the bucket's ten-day orphan safety lifecycle.
 	if now >= r.ExpiresAt {
 		before := r
+		r.FrontOCRAsset, r.FrontOCRDue = nil, 0
 		r.Extraction = nil
 		r.Reviewed = nil
 		r.State = "expired"
@@ -163,6 +168,7 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 	r.Revision++
 	r.LeaseUntil = 0
 	if validationErr == nil && s.now().Unix() >= r.ExpiresAt {
+		r.FrontOCRAsset, r.FrontOCRDue = nil, 0
 		r.Extraction = nil
 		r.Reviewed = nil
 		r.State = "expired"
@@ -182,12 +188,12 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 		}
 		r.DeleteAfter = s.now().Add(retention).Unix()
 		r.Due = r.DeleteAfter
-		if s.Extractor != nil {
+		if s.Extractor != nil && r.FrontOCRAsset == nil {
 			r.Extraction = &Extraction{Status: "pending"}
 			r.Work = "extract"
 			r.Due = s.now().Unix()
 		}
-		return s.Store.Swap(ctx, before, r, true)
+		return s.finishValidation(ctx, before, r, before.DeleteAfter == 0)
 	}
 	if validationErr == ErrImage {
 		r.State = "requires_recapture"
@@ -202,5 +208,34 @@ func (s Service) Work(ctx context.Context, job Job) (err error) {
 	} else {
 		r.Due = s.now().Add(time.Duration(r.Attempts) * time.Minute).Unix()
 	}
-	return s.Store.Swap(ctx, before, r, false)
+	if r.State != "finalizing" {
+		r.FrontOCRAsset, r.FrontOCRDue, r.Extraction = nil, 0, nil
+	}
+	return s.finishValidation(ctx, before, r, false)
+}
+
+// A front OCR update may land while the validation lease is active. Preserve
+// the OCR lane while committing the validation result for the same image pair.
+func (s Service) finishValidation(ctx context.Context, before, next Record, ready bool) error {
+	for {
+		err := s.Store.Swap(ctx, before, next, ready)
+		if err != ErrConflict || before.FrontOCRAsset == nil {
+			return err
+		}
+		current, err := s.Store.Get(ctx, before.Owner, before.ID)
+		if err != nil {
+			return err
+		}
+		if current.Revision == before.Revision || current.Generation != before.Generation || current.State != before.State ||
+			current.LeaseUntil != before.LeaseUntil {
+			return ErrConflict
+		}
+		before = current
+		next.Revision = current.Revision + 1
+		if next.FrontOCRAsset != nil {
+			next.Extraction = current.Extraction
+			next.ExtractionAttempts = current.ExtractionAttempts
+			next.FrontOCRDue = current.FrontOCRDue
+		}
+	}
 }

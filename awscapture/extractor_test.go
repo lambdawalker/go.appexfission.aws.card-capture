@@ -148,3 +148,17 @@ func TestStitchedBenchmarkSendsOneImage(t *testing.T) {
 		t.Fatal(calls)
 	}
 }
+
+func TestFrontOCRUsesBoundedGrayscaleJPEG(t *testing.T) {
+	prepared, err := prepareInferenceJPEG(cardImages(t)[0].JPEG, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := jpeg.Decode(bytes.NewReader(prepared))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded.(*image.Gray); !ok || decoded.Bounds().Dx() != 1600 || decoded.Bounds().Dy() != 1066 {
+		t.Fatalf("unexpected front OCR image: %T %v", decoded, decoded.Bounds())
+	}
+}

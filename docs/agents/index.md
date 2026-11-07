@@ -56,13 +56,21 @@ and benchmark runs do not establish the code version or latency in an AWS enviro
 
 The policy response advertises `stitched_pair_supported` independently of its
 consent hash. A client can register and upload the grayscale `front` immediately,
-then register one color `stitched` JPEG with the front above the back.
-Finalize the exact IDs for both uploads. The worker validates and retains both
-files and sends the stitched image to OCR. Legacy clients can still finalize
-`front` plus `back`. A capture generation cannot mix `back` and `stitched`.
+then call `POST /onboarding/id/captures/{capture_id}/confirm-front` with its
+`upload_id` after the PUT succeeds. Confirmation pins the object version and
+queues OCR immediately. Finalization starts front OCR if confirmation was missed.
+The worker sends just the front image to OCR in grayscale
+with a maximum edge of 1600 pixels. Android can upload the color `stitched` JPEG
+and finalize both IDs while OCR runs. The worker validates and retains both
+evidence files. Legacy clients can still finalize `front` plus `back`. A capture
+generation cannot mix `back` and `stitched`.
+
+After the first OCR failure, extraction remains `pending` and sets `retrying: true`. A ready
+capture can be reviewed and saved at this point. The worker queues one immediate
+retry and sets `complete` or `failed` when it finishes.
 
 Each registered upload has a unique object key. Successful PUTs remain in the
 private versioned evidence bucket even after a retake clears the selected IDs.
-Only the selected, validated pair is eligible for the current OCR or subsequent
-validation. Retention expiry, cancellation, reset and orphan cleanup still
+Only the selected front is eligible for early OCR. Finalization validates the
+selected evidence pair. Retention expiry, cancellation, reset and orphan cleanup still
 remove evidence under their existing rules.

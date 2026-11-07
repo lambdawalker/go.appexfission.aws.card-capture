@@ -168,7 +168,7 @@ func Deploy(ctx *pulumi.Context, cfg Config, opts Options, storage *Storage) (*D
 	if e != nil {
 		return nil, e
 	}
-	for i, route := range []string{"GET /onboarding/id/document-policy", "GET /onboarding/id/status", "POST /onboarding/id/captures", "GET /onboarding/id/captures/{capture_id}", "POST /onboarding/id/captures/{capture_id}/uploads", "POST /onboarding/id/captures/{capture_id}/finalize", "POST /onboarding/id/captures/{capture_id}/retry-finalization", "POST /onboarding/id/captures/{capture_id}/cancel", "POST /onboarding/id/captures/{capture_id}/review", "POST /onboarding/id/captures/{capture_id}/retake"} {
+	for i, route := range []string{"GET /onboarding/id/document-policy", "GET /onboarding/id/status", "POST /onboarding/id/captures", "GET /onboarding/id/captures/{capture_id}", "POST /onboarding/id/captures/{capture_id}/uploads", "POST /onboarding/id/captures/{capture_id}/finalize", "POST /onboarding/id/captures/{capture_id}/retry-finalization", "POST /onboarding/id/captures/{capture_id}/cancel", "POST /onboarding/id/captures/{capture_id}/review", "POST /onboarding/id/captures/{capture_id}/retake", "POST /onboarding/id/captures/{capture_id}/confirm-front"} {
 		_, e = apigatewayv2.NewRoute(ctx, fmt.Sprintf("capture-route-%d", i), &apigatewayv2.RouteArgs{ApiId: opts.Integration["api_id"], RouteKey: pulumi.String(route), Target: pulumi.Sprintf("integrations/%s", integration.ID()), AuthorizationType: pulumi.String("JWT"), AuthorizerId: authorizer.ID()}, awslabels.Option(ctx))
 		if e != nil {
 			return nil, e

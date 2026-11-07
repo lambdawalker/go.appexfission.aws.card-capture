@@ -77,12 +77,16 @@ func (s Service) Get(ctx context.Context, owner, id string) (Record, error) {
 	// Recover overdue durable intent as well, even when the dispatcher/worker is unavailable.
 	// Allow five minutes past the scheduled attempt, without interrupting a live lease.
 	// The revision fence rejects late worker publication.
-	if r.State == "ready" && (r.Extraction == nil ||
-		(r.Extraction.Status == "pending" && r.LeaseUntil <= s.now().Unix() &&
-			(r.Work != "extract" || s.now().Unix() >= r.Due+300))) {
+	now := s.now().Unix()
+	legacyStalled := r.FrontOCRAsset == nil && (r.Extraction == nil ||
+		(r.Extraction.Status == "pending" && r.LeaseUntil <= now &&
+			(r.Work != "extract" || now >= r.Due+300)))
+	frontStalled := r.FrontOCRDue != 0 && now >= r.FrontOCRDue+300
+	if r.State == "ready" && (legacyStalled || frontStalled) {
 		before := r
 		r.Revision++
 		r.LeaseUntil = 0
+		r.FrontOCRDue = 0
 		r.Extraction = &Extraction{Status: "failed", Error: "extraction_unavailable"}
 		r.Work = "cleanup"
 		r.Due = r.DeleteAfter
@@ -229,6 +233,9 @@ func (s Service) Upload(ctx context.Context, owner, id string, in UploadRequest)
 		before := r
 		r.Slots = cloneSlots(r.Slots)
 		r.Slots[in.Slot] = u.ID
+		if in.Slot == "front" {
+			r.FrontOCRAsset, r.FrontOCRDue, r.Extraction, r.ExtractionAttempts = nil, 0, nil, 0
+		}
 		r.Uploads = append(append([]Upload{}, r.Uploads...), u)
 		r.Revision++
 		if e = s.Store.Swap(ctx, before, r, false); e != nil {
@@ -301,6 +308,9 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 		}
 	}
 	before := r
+	if s.Extractor != nil && r.FrontOCRAsset == nil {
+		startFrontOCR(&r, assets[0], s.now().Unix())
+	}
 	r.Assets = assets
 	r.FinalizeKey = in.OperationKey
 	// Identify the finalized pair independently of subsequent worker revisions.
@@ -316,26 +326,29 @@ func (s Service) Finalize(ctx context.Context, owner, id string, in FinalizeRequ
 	return r, nil
 }
 func (s Service) Cancel(ctx context.Context, owner, id string) (Record, error) {
-	r, e := s.Store.Get(ctx, owner, id)
-	if e != nil {
+	for {
+		r, e := s.Store.Get(ctx, owner, id)
+		if e != nil {
+			return r, e
+		}
+		if r.State == "cancelled" || r.State == "expired" {
+			return r, nil
+		}
+		before := r
+		r.State = "cancelled"
+		r.Extraction = nil
+		r.Reviewed = nil
+		r.FrontOCRAsset, r.FrontOCRDue = nil, 0
+		r.Work = "cleanup"
+		r.Due = s.now().Add(UploadLifetime + time.Minute).Unix()
+		r.Generation++
+		r.LeaseUntil = 0
+		r.Revision++
+		if e = s.Store.Swap(ctx, before, r, false); e == ErrConflict {
+			continue
+		}
 		return r, e
 	}
-	if r.State == "cancelled" || r.State == "expired" {
-		return r, nil
-	}
-	before := r
-	r.State = "cancelled"
-	r.Extraction = nil
-	r.Reviewed = nil
-	r.Work = "cleanup"
-	r.Due = s.now().Add(UploadLifetime + time.Minute).Unix()
-	r.Generation++
-	r.LeaseUntil = 0
-	r.Revision++
-	if e = s.Store.Swap(ctx, before, r, false); e != nil {
-		return Record{}, e
-	}
-	return r, nil
 }
 func (s Service) Retry(ctx context.Context, owner, id, key string) (Record, error) {
 	if !ValidOperation(key) {
@@ -348,7 +361,7 @@ func (s Service) Retry(ctx context.Context, owner, id, key string) (Record, erro
 	if r.RetryKey == key {
 		return r, nil
 	}
-	if r.State == "ready" && r.Extraction != nil && r.Extraction.Status == "failed" {
+	if r.State == "ready" && r.FrontOCRAsset == nil && r.Extraction != nil && r.Extraction.Status == "failed" {
 		before := r
 		r.Extraction = &Extraction{Status: "pending"}
 		r.ExtractionAttempts = 0

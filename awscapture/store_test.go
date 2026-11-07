@@ -65,3 +65,26 @@ func TestReadyTransactionPersistsDurableAccountCompletion(t *testing.T) {
 		t.Fatal("non-ready transition created completion", writes, err)
 	}
 }
+
+func TestFrontOCRIndexProjectionPreservesValidationLane(t *testing.T) {
+	record := capture.Record{Owner: "owner", ID: "sample", State: "finalizing",
+		Work: "validate", Due: 200, Generation: 4, FrontOCRDue: 100, FrontOCRGeneration: 2}
+	item, err := recordItem(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key := item["work"].(*types.AttributeValueMemberS).Value; key != "front-ocr" {
+		t.Fatal("GSI must schedule the earlier OCR job", key)
+	}
+	var decoded capture.Record
+	if err := decodeRecord(item, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Work != record.Work || decoded.Due != record.Due {
+		t.Fatalf("validation lane changed: %s %d", decoded.Work, decoded.Due)
+	}
+	job, due := nextJob(decoded)
+	if job.Work != "front-ocr" || job.Generation != 2 || due != 100 {
+		t.Fatalf("wrong projected job: %+v at %d", job, due)
+	}
+}
