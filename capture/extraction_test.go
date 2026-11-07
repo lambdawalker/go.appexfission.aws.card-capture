@@ -16,13 +16,13 @@ func (f extractorFunc) Extract(ctx context.Context, images []CardImage) (CardDat
 }
 func extractionFixture(t *testing.T) (Service, *memoryStore, *memoryObjects, *time.Time, Record) {
 	s, m, o, now := fixture(t)
+	r := freeze(t, s, o) // A capture finalized before front OCR was available.
 	s.Extractor = extractorFunc(func(_ context.Context, images []CardImage) (CardData, error) {
 		if len(images) != 2 || images[0].Slot != "front" || images[1].Slot != "back" {
 			t.Fatal("missing ordered images")
 		}
 		return CardData{FullName: "Test Person", DocumentNumber: "000123"}, nil
 	})
-	r := freeze(t, s, o)
 	if e := s.Work(context.Background(), Job{r.Owner, r.ID, r.Generation, r.Work}); e != nil {
 		t.Fatal(e)
 	}
@@ -242,29 +242,14 @@ func TestActiveExtractionLeaseIsNotFailedByRead(t *testing.T) {
 	}
 }
 
-type stitchedExtractor struct {
-	extractorFunc
-	stitched func([]byte) (CardData, error)
-}
-
-func (f stitchedExtractor) ExtractStitched(_ context.Context, jpeg []byte) (CardData, error) {
-	return f.stitched(jpeg)
-}
-
-func TestStitchedCaptureRetainsBothAssetsAndUsesColorPairForOCR(t *testing.T) {
+func TestStitchedCaptureRetainsBothAssetsAndFallsBackToFrontOCR(t *testing.T) {
 	s, m, o, _ := fixture(t)
-	s.Extractor = stitchedExtractor{
-		extractorFunc: func(context.Context, []CardImage) (CardData, error) {
-			t.Fatal("stitched capture called the separate-side extractor")
-			return CardData{}, nil
-		},
-		stitched: func(jpeg []byte) (CardData, error) {
-			if len(jpeg) == 0 {
-				t.Fatal("missing stitched JPEG")
-			}
-			return CardData{FullName: "Test Person"}, nil
-		},
-	}
+	s.Extractor = extractorFunc(func(_ context.Context, images []CardImage) (CardData, error) {
+		if len(images) != 1 || images[0].Slot != "front" || len(images[0].JPEG) == 0 {
+			t.Fatal("only the front JPEG should be sent to OCR")
+		}
+		return CardData{FullName: "Test Person"}, nil
+	})
 	ctx := context.Background()
 	r, err := s.Create(ctx, "owner", "create_operation_1", "sample_card", s.Policy().Version)
 	if err != nil {
@@ -287,15 +272,13 @@ func TestStitchedCaptureRetainsBothAssetsAndUsesColorPairForOCR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, phase := range []string{"validate", "extract"} {
-		if r.Work != phase {
-			t.Fatalf("expected %s, got %s", phase, r.Work)
-		}
-		if err := s.Work(ctx, Job{r.Owner, r.ID, r.Generation, r.Work}); err != nil {
-			t.Fatal(err)
-		}
-		r = m.records[r.ID]
+	if err := s.Work(ctx, Job{r.Owner, r.ID, r.Generation, "validate"}); err != nil {
+		t.Fatal(err)
 	}
+	if err := s.Work(ctx, Job{r.Owner, r.ID, r.FrontOCRGeneration, "front-ocr"}); err != nil {
+		t.Fatal(err)
+	}
+	r = m.records[r.ID]
 	if len(r.Assets) != 2 || len(r.Processed) != 2 || r.Processed[0].Slot != "front" ||
 		r.Processed[1].Slot != "stitched" || r.Extraction.Status != "complete" {
 		t.Fatal("both evidence files and successful extraction must be retained")
