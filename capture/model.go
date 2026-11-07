@@ -66,6 +66,7 @@ type Record struct {
 	Error                 string            `json:"error,omitempty"`
 	CreateKey             string            `json:"-"`
 	FinalizeKey           string            `json:"-"`
+	RetakeKey             string            `json:"-"`
 	RetryKey              string            `json:"-"`
 	Generation            int64             `json:"-"`
 	Attempts              int               `json:"-"`
