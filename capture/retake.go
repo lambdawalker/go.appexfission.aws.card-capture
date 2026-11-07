@@ -43,6 +43,7 @@ func (s Service) Retake(ctx context.Context, owner, id string, in RetakeRequest)
 	r.Slots = map[string]string{}
 	r.Assets, r.Processed = nil, nil
 	r.Extraction, r.Reviewed = nil, nil
+	r.FrontOCRAsset, r.FrontOCRDue = nil, 0
 	r.FinalizeKey, r.RetryKey, r.ProcessingVersion, r.Error = "", "", "", ""
 	r.ExtractionAttempts, r.Attempts = 0, 0
 	r.Generation++
