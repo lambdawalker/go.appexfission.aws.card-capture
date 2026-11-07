@@ -8,7 +8,7 @@
 :root{color-scheme:light;--ink:#17263a;--muted:#52647a;--line:#dce5ef;--blue:#2862c5;--teal:#007f76}
 *{box-sizing:border-box}
 body{margin:0;background:#f2f6fb;color:var(--ink);font:15px/1.55 system-ui,sans-serif}
-main{max-width:1120px;margin:auto;padding:36px 20px}
+main{max-width:1440px;margin:auto;padding:36px 20px}
 h1,h2,h3,p{margin:0} h1{font-size:clamp(1.8rem,5vw,2.75rem);letter-spacing:-.04em}
 header p,.muted{color:var(--muted)} header{margin-bottom:24px}
 .eyebrow{font-size:.78rem;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--blue)}
@@ -37,6 +37,20 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 .json-line{display:block;min-width:max-content}.json-key{color:#2158a3}.json-value{color:#086343}
 .json-changed{background:#fff0c2;border-left:3px solid #a66d00}.json-compare{margin-top:12px}
 .upload-preview{margin:12px 0}.upload-preview img{display:block;max-width:min(100%,460px);height:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
+.test-layout{display:grid;grid-template-columns:minmax(190px,240px) minmax(0,1fr);gap:18px;align-items:start;margin-bottom:16px}
+.test-list{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;background:white;border:1px solid var(--line);border-radius:14px;padding:12px}
+.test-list h2{font-size:1rem;padding:4px 8px 10px}
+.test-link{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;color:var(--ink);text-decoration:none}
+.test-link:hover{background:#f2f6fb}
+.test-link[aria-current="true"]{background:#e7efff;color:#194eaa;font-weight:700}
+.test-link small{color:var(--muted);white-space:nowrap}
+.test-detail{min-width:0;margin:0 0 12px}
+.test-detail h2{font-size:1.35rem}
+@media(max-width:720px){
+  main{padding:20px 12px}
+  .test-layout{grid-template-columns:minmax(0,1fr)}
+  .test-list{position:static;max-height:220px}
+}
 </style>
 </head>
 <body>
@@ -49,12 +63,19 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
   <div class="card"><span>Client p50</span><strong>{{if .Succeeded}}{{ms .P50}}{{else}}—{{end}}</strong></div>
   <div class="card"><span>Client p95</span><strong>{{if .Succeeded}}{{ms .P95}}{{else}}—{{end}}</strong></div>
 </div>
-<p class="legend"><span class="key">Client invocation</span><span class="key inference">Model inference</span><span>Shared scale up to {{ms .Scale}}</span></p>
+<div class="test-layout">
+<nav class="test-list" aria-labelledby="test-list-title">
+<h2 id="test-list-title">Tests ({{len .Fixtures}})</h2>
 {{range $index, $fixture := .Fixtures}}
-<section>
-<details {{if eq $index 0}}open{{end}}>
-<summary>{{.Name}} · {{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</summary>
-<div class="details">
+<a class="test-link" href="#test-{{$index}}"><span>{{.Name}}</span><small>{{len .Runs}} runs</small></a>
+{{end}}
+</nav>
+<div class="test-details">
+{{range $index, $fixture := .Fixtures}}
+<section id="test-{{$index}}" class="test-detail" aria-labelledby="test-title-{{$index}}">
+<h2 id="test-title-{{$index}}">{{.Name}}</h2>
+<p class="muted">{{len .Runs}} runs{{if .P50}} · p50 {{ms .P50}} · p95 {{ms .P95}}{{end}}</p>
+<p class="legend"><span class="key">Client invocation</span><span class="key inference">Model inference</span><span>Shared scale up to {{ms $.Scale}}</span></p>
 <p class="muted">{{.Width}} × {{.Height}} px · {{.Bytes}} bytes · local preparation {{ms .PrepareMS}} · upload {{ms .UploadMS}}</p>
 {{with .Preview}}<details class="upload-preview"><summary>Preview uploaded image</summary>
 <img src="{{.}}" loading="lazy" alt="Stitched front and back image sent for OCR"></details>{{end}}
@@ -87,11 +108,39 @@ th{color:var(--muted);font-size:.84rem} td:last-child{min-width:160px}
 </details>
 {{end}}
 {{end}}
-</div>
-</details>
 </section>
 {{end}}
+</div>
+</div>
 <p class="muted">Client percentiles include successful extractions. Preparation and upload are measured separately.</p>
 </main>
+<script>
+const links = Array.from(document.querySelectorAll(".test-link"));
+const panels = Array.from(document.querySelectorAll(".test-detail"));
+
+function selectTest(id) {
+  if (!panels.some(panel => "#" + panel.id === id)) return;
+  for (const panel of panels) panel.hidden = "#" + panel.id !== id;
+  for (const link of links) {
+    if (link.hash === id) link.setAttribute("aria-current", "true");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+if (links.length) {
+  selectTest(panels.some(panel => "#" + panel.id === location.hash) ? location.hash : links[0].hash);
+  for (const link of links) {
+    link.addEventListener("click", event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      selectTest(link.hash);
+      if (matchMedia("(max-width: 720px)").matches) {
+        document.getElementById(link.hash.slice(1)).scrollIntoView({block: "start"});
+      }
+    });
+  }
+  addEventListener("hashchange", () => selectTest(location.hash));
+}
+</script>
 </body>
 </html>
