@@ -79,7 +79,7 @@ func (s Service) Get(ctx context.Context, owner, id string) (Record, error) {
 	// The revision fence rejects late worker publication.
 	now := s.now().Unix()
 	legacyStalled := r.FrontOCRAsset == nil && (r.Extraction == nil ||
-		((r.Extraction.Status == "pending" || r.Extraction.Status == "retrying") && r.LeaseUntil <= now &&
+		(r.Extraction.Status == "pending" && r.LeaseUntil <= now &&
 			(r.Work != "extract" || now >= r.Due+300)))
 	frontStalled := r.FrontOCRDue != 0 && now >= r.FrontOCRDue+300
 	if r.State == "ready" && (legacyStalled || frontStalled) {
