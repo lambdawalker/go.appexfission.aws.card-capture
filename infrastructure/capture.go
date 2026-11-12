@@ -78,7 +78,7 @@ func DeployStorage(ctx *pulumi.Context, cfg Config, opts Options) (*Storage, err
 	_, e = dynamodb.NewResourcePolicy(ctx, "capture-comparison-access", &dynamodb.ResourcePolicyArgs{
 		ResourceArn: reports.Arn,
 		Policy:      pulumi.Sprintf(`{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":["dynamodb:GetItem","dynamodb:BatchGetItem","dynamodb:Query","dynamodb:Scan","dynamodb:PartiQLSelect","dynamodb:ExportTableToPointInTime","dynamodb:CreateBackup","dynamodb:RestoreTableToPointInTime"],"Resource":%q%s},{"Effect":"Deny","Principal":"*","Action":["dynamodb:UpdateItem","dynamodb:DeleteItem","dynamodb:PartiQLUpdate","dynamodb:PartiQLDelete"],"Resource":%q}]}`, reports.Arn, readCondition, reports.Arn),
-	})
+	}, awslabels.Option(ctx))
 	if e != nil {
 		return nil, e
 	}
