@@ -16,15 +16,20 @@ type CardData struct {
 	BirthDate      string `json:"birth_date"`
 	DocumentNumber string `json:"document_number"`
 	// PersonalNumber retains its Go name for existing DynamoDB records.
-	PersonalNumber string `json:"issued_identifier"`
-	Address        string `json:"address"`
-	IssueDate      string `json:"issue_date"`
-	ExpiryDate     string `json:"expiry_date"`
-	IssuingCountry string `json:"issuing_country"`
+	PersonalNumber   string `json:"issued_identifier"`
+	Address          string `json:"address"`
+	IssueDate        string `json:"issue_date"`
+	ExpiryDate       string `json:"expiry_date"`
+	IssuingCountry   string `json:"issuing_country"`
+	DocumentType     string `json:"document_type"`
+	DocumentName     string `json:"document_name"`
+	IssuingRegion    string `json:"issuing_region"`
+	IssuingCity      string `json:"issuing_city"`
+	IssuingAuthority string `json:"issuing_authority"`
 }
 
 func (d CardData) Valid() bool {
-	for _, v := range []string{d.FullName, d.GivenNames, d.Surnames, d.BirthDate, d.DocumentNumber, d.PersonalNumber, d.Address, d.IssueDate, d.ExpiryDate, d.IssuingCountry} {
+	for _, v := range []string{d.FullName, d.GivenNames, d.Surnames, d.BirthDate, d.DocumentNumber, d.PersonalNumber, d.Address, d.IssueDate, d.ExpiryDate, d.IssuingCountry, d.DocumentType, d.DocumentName, d.IssuingRegion, d.IssuingCity, d.IssuingAuthority} {
 		if !utf8.ValidString(v) || len(v) > 512 || strings.ContainsAny(v, "\x00\r") {
 			return false
 		}
