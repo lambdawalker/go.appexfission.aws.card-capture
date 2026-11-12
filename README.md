@@ -33,3 +33,23 @@ See [capture API, retakes and timing](docs/agents/index.md) and the [Attestra sy
 ## Isolated OCR speed bench
 
 See [console benchmark and deployment guide](docs/ocr-bench.md) for private, standalone OCR testing from front/back JPEGs, without Android or onboarding services.
+
+### Document details and issuing jurisdiction
+
+Development OCR/review data now includes optional string keys `document_type`,
+`document_name`, `issuing_region`, `issuing_city`, and `issuing_authority`, alongside
+`issuing_country`. These are transcription/correction data, not verification and
+not the capture policy's `document_type`. Presets are `national_id`, `passport`,
+`drivers_license`, `residence_permit`, `voter_id`, and `other`; unfamiliar titles
+belong in `document_name`. Old records decode with empty new fields. All fields
+retain the 512 UTF-8 byte bound and existing control-character validation.
+
+The issuing jurisdiction describes the issuing government, separately from the
+holder's residence, birthplace, nationality and reviewed `origin_country`.
+The model transcribes only supported issuing information and leaves unknown
+jurisdiction levels blank; it must not infer a country/region from a city or
+residential address. Values remain editable, and issuing authority is separate.
+All new fields persist with reviewed data and participate in comparison reports.
+Deploy this feature revision through the consuming host before using the new
+Android review fields; older servers reject unknown review keys. No deployment
+or publication is implied by these source changes.

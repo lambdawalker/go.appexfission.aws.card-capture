@@ -49,6 +49,8 @@ func (d CardData) fields() map[string]string {
 	return map[string]string{
 		"full_name": d.FullName, "given_names": d.GivenNames, "surnames": d.Surnames,
 		"birth_date": d.BirthDate, "document_number": d.DocumentNumber, "issued_identifier": d.PersonalNumber,
+		"document_type": d.DocumentType, "document_name": d.DocumentName,
+		"issuing_region": d.IssuingRegion, "issuing_city": d.IssuingCity, "issuing_authority": d.IssuingAuthority,
 		"address": d.Address, "issue_date": d.IssueDate, "expiry_date": d.ExpiryDate, "issuing_country": d.IssuingCountry,
 	}
 }
