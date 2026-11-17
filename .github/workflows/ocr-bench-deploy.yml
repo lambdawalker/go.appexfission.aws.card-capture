@@ -14,23 +14,31 @@ on:
         type: choice
         options: [preview, deploy, status]
         default: preview
+      approve:
+        description: Explicitly approve applying a successful non-destructive saved plan
+        type: boolean
+        required: true
+        default: false
       memory:
         description: Lambda memory MB
         default: '1024'
 permissions:
   contents: read
-  id-token: write
 concurrency:
-  group: ocr-bench-${{ inputs.target }}
+  group: card-capture-deploy-${{ inputs.target }}
   cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     environment: ${{ inputs.environment }}
     env:
       PROJECT: ${{ vars.BENCH_PROJECT }}
       TARGET: ${{ inputs.target }}
       ACTION: ${{ inputs.action }}
+      APPROVE: ${{ inputs.approve }}
       MEMORY: ${{ inputs.memory }}
       BENCH_ACCOUNT: ${{ vars.BENCH_ACCOUNT }}
       BENCH_REGION: ${{ vars.BENCH_REGION }}
@@ -52,6 +60,7 @@ jobs:
           test -n "$BENCH_ACCOUNT" && test -n "$BENCH_REGION" && test -n "$BENCH_BACKEND" && test -n "$ROLE" && test -n "$PULUMI_CONFIG_PASSPHRASE"
           [[ "$ACTION" =~ ^(preview|deploy|status)$ ]]
           [[ "$MEMORY" =~ ^[0-9]+$ ]]
+          if [[ "$ACTION" == deploy ]]; then test "$APPROVE" = true; fi
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.BENCH_ROLE_ARN }}
@@ -61,4 +70,6 @@ jobs:
       - name: Run shared deployment program
         shell: bash
         run: |
-          ./deploy.sh --project "$PROJECT" --non-interactive --approve --environment "$TARGET" --action "$ACTION" --account "$BENCH_ACCOUNT" --region "$BENCH_REGION" --backend "$BENCH_BACKEND" --memory "$MEMORY"
+          approval=()
+          if [[ "$ACTION" == deploy && "$APPROVE" == true ]]; then approval=(--approve); fi
+          ./deploy.sh --project "$PROJECT" --non-interactive "${approval[@]}" --environment "$TARGET" --action "$ACTION" --account "$BENCH_ACCOUNT" --region "$BENCH_REGION" --backend "$BENCH_BACKEND" --memory "$MEMORY"

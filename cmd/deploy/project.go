@@ -28,6 +28,9 @@ func projectPaths(root, name string, ci bool) (string, string, string, error) {
 		if name != "" && name != r.Name {
 			return "", "", "", errors.New("--project differs from saved repository project")
 		}
+		if r.Root != root {
+			return "", "", "", errors.New("checkout moved; follow explicit project/vault migration before continuing")
+		}
 		name = r.Name
 	} else if !os.IsNotExist(e) {
 		return "", "", "", e
@@ -47,10 +50,15 @@ func projectPaths(root, name string, ci bool) (string, string, string, error) {
 	}
 	central := filepath.Join(home, ".infra-composer", name)
 	for _, dir := range []string{local, central} {
-		if e = os.MkdirAll(dir, 0700); e != nil {
+		if e = privateDirectory(dir); e != nil {
 			return "", "", "", e
 		}
 	}
+	unlock, e := operationLock(filepath.Join(central, "project.lock"))
+	if e != nil {
+		return "", "", "", e
+	}
+	defer unlock()
 	registry := filepath.Join(central, "project.json")
 	if b, e := os.ReadFile(registry); e == nil {
 		var old projectRecord
@@ -84,7 +92,7 @@ type stackRecord struct {
 func ensureStack(ctx context.Context, dir, stack, receipt string, target stackRecord, allowCreate bool, run func(...string) error, list func() ([]byte, error)) error {
 	if b, e := os.ReadFile(receipt); e == nil {
 		var prior stackRecord
-		if json.Unmarshal(b, &prior) != nil {
+		if json.Unmarshal(b, &prior) != nil || prior.Version != 1 || prior.Stack != stack {
 			return errors.New("invalid stack receipt")
 		}
 		if prior.Account != target.Account || prior.Region != target.Region || prior.Backend != target.Backend {
@@ -116,7 +124,7 @@ func ensureStack(ctx context.Context, dir, stack, receipt string, target stackRe
 	} else {
 		if b, e := os.ReadFile(receipt); e == nil {
 			var prior stackRecord
-			if json.Unmarshal(b, &prior) != nil {
+			if json.Unmarshal(b, &prior) != nil || prior.Version != 1 || prior.Stack != stack {
 				return errors.New("invalid stack receipt")
 			}
 			if prior.Initialized {

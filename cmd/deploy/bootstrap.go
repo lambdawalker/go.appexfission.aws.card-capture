@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type bucketReceipt struct {
+	Version               int
 	Account, Region, Name string
 	Created, Ready        bool
 }
@@ -21,10 +23,10 @@ func bootstrapBucket(ctx context.Context, private, account, region string) (stri
 }
 func bootstrapWith(ctx context.Context, private, account, region string, run func(...string) error) (string, error) {
 	path := filepath.Join(private, "state-bucket.json")
-	r := bucketReceipt{Account: account, Region: region}
+	r := bucketReceipt{Version: 1, Account: account, Region: region}
 	b, e := os.ReadFile(path)
 	if e == nil {
-		if json.Unmarshal(b, &r) != nil || r.Account != account || r.Region != region {
+		if json.Unmarshal(b, &r) != nil || r.Version > 1 || r.Account != account || r.Region != region {
 			return "", fmt.Errorf("state bucket receipt scope mismatch; preserve receipt and explicitly select an existing bucket")
 		}
 	} else if !os.IsNotExist(e) {
@@ -39,7 +41,20 @@ func bootstrapWith(ctx context.Context, private, account, region string, run fun
 			return "", e
 		}
 	}
+	r.Version = 1
 	fmt.Printf("State bucket: %s • account %s • region %s\n", r.Name, account, region)
+	if !r.Created && len(b) > 0 {
+		// A crash can occur after AWS creates the bucket but before the receipt write.
+		e = run("head-bucket", "--bucket", r.Name, "--expected-bucket-owner", account)
+		if e == nil {
+			r.Created = true
+			if e = saveBucketReceipt(path, r); e != nil {
+				return "", e
+			}
+		} else if !strings.Contains(e.Error(), "404") && !strings.Contains(e.Error(), "NoSuchBucket") {
+			return "", fmt.Errorf("pending bootstrap ownership is unknown; recover this exact bucket: %w", e)
+		}
+	}
 	if !r.Created {
 		args := []string{"create-bucket", "--bucket", r.Name, "--region", region, "--object-ownership", "BucketOwnerEnforced"}
 		if region != "us-east-1" {

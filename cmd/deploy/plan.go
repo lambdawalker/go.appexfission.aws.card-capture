@@ -21,7 +21,7 @@ func destructivePlan(data []byte) (bool, error) {
 	}
 	for _, r := range plan.ResourcePlans {
 		for _, op := range r.Steps {
-			if op == "delete" || strings.Contains(op, "replace") {
+			if strings.Contains(op, "delete") || strings.Contains(op, "replace") {
 				return true, nil
 			}
 		}
