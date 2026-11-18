@@ -32,7 +32,7 @@ See [capture API, retakes and timing](docs/agents/index.md) and the [Attestra sy
 
 ## Isolated OCR speed bench
 
-See [console benchmark and deployment guide](docs/ocr-bench.md) for private, standalone OCR testing from front/back JPEGs, without Android or onboarding services.
+See the [deployment requirement audit](docs/deployment-alignment.md) and [console benchmark and deployment guide](docs/ocr-bench.md) for private, standalone OCR testing from front/back JPEGs, without Android or onboarding services.
 
 ### Document details and issuing jurisdiction
 

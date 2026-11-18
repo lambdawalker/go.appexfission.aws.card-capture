@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -34,6 +33,8 @@ func TestBuildCacheDetectsTampering(t *testing.T) {
 	bin := t.TempDir()
 	fake := filepath.Join(bin, "go")
 	script := `#!/bin/sh
+if [ "$1" = list ]; then printf '{"Dir":"%s","GoFiles":["source.go"],"Module":{"GoMod":"%s/go.mod"}}' "$PWD" "$PWD"; exit; fi
+if [ "$1" = env ]; then echo '{}'; exit; fi
 if [ "$1" = version ]; then echo 'go version go1.27.3 linux/amd64'; exit; fi
 while [ $# -gt 0 ]; do if [ "$1" = -o ]; then shift; printf binary > "$1"; exit; fi; shift; done
 exit 1
@@ -43,6 +44,7 @@ exit 1
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example"), 0600)
+	os.WriteFile(filepath.Join(root, "source.go"), []byte("package old"), 0600)
 	archive, e := build(context.Background(), root, false)
 	if e != nil {
 		t.Fatal(e)
@@ -75,9 +77,19 @@ exit 1
 }
 
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "--confirm-child") {
-		os.Exit(readApproval(os.Args[1] != "--confirm-child-no"))
+	if len(os.Args) == 2 && os.Args[1] == "--input-child" {
+		var b [256]byte
+		for {
+			n, e := os.Stdin.Read(b[:])
+			if n > 0 {
+				os.Stdout.Write(b[:n])
+			}
+			if e != nil {
+				os.Exit(0)
+			}
+		}
 	}
+
 	os.Exit(m.Run())
 }
 func TestTimedChoice(t *testing.T) {

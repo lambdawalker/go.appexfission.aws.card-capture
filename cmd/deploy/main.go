@@ -3,7 +3,6 @@ package main
 
 import (
 	"archive/zip"
-	"bufio"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -20,7 +19,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -30,8 +28,6 @@ type Settings struct {
 	Environment, Profile, Region, Account, Backend string
 }
 
-var input = bufio.NewReader(os.Stdin)
-
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -39,87 +35,28 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	if len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "--confirm-child") {
-		os.Exit(readApproval(os.Args[1] != "--confirm-child-no"))
+	if len(os.Args) == 2 && os.Args[1] == "--input-child" {
+		var b [256]byte
+		for {
+			n, err := os.Stdin.Read(b[:])
+			if n > 0 {
+				_, _ = os.Stdout.Write(b[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
 	}
 
 	if e := run(); e != nil {
+		if errors.Is(e, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "\n  "+color("Stopped", "1;31")+"  "+e.Error())
 		os.Exit(1)
 	}
 }
 
-// The child owns terminal mode and input; the parent can cancel it without leaked readers.
-func readApproval(defaultYes bool) int {
-	var value byte
-	if runtime.GOOS == "windows" {
-		c := exec.Command("powershell", "-NoProfile", "-Command", `if ([Console]::IsInputRedirected) { $v=[Console]::Read(); if($v -lt 0){exit 2}; [Console]::Write([char]$v) } else { [Console]::Write([Console]::ReadKey($true).KeyChar) }`)
-		c.Stdin = os.Stdin
-		b, e := c.Output()
-		if e != nil || len(b) == 0 {
-			return 2
-		}
-		value = b[0]
-	} else {
-		state := exec.Command("stty", "-g")
-		state.Stdin = os.Stdin
-		old, e := state.Output()
-		if e == nil {
-			raw := exec.Command("stty", "-echo", "-icanon", "min", "1", "time", "0")
-			raw.Stdin = os.Stdin
-			if raw.Run() != nil {
-				return 2
-			}
-			defer func() {
-				restore := exec.Command("stty", strings.TrimSpace(string(old)))
-				restore.Stdin = os.Stdin
-				_ = restore.Run()
-			}()
-		}
-		var one [1]byte
-		n, e := os.Stdin.Read(one[:])
-		if e != nil || n != 1 {
-			return 2
-		}
-		value = one[0]
-	}
-	if !defaultYes && (value == '\n' || value == '\r') {
-		return 3
-	}
-	if value == 'n' || value == 'N' {
-		return 3
-	}
-	if value == 'y' || value == 'Y' || value == '\n' || value == '\r' {
-		return 0
-	}
-	return 2
-}
-
-func prompt(label, def string) string {
-	fmt.Printf("  %s %s: ", color(label, "1"), color("["+def+"]", "2"))
-	s, e := input.ReadString('\n')
-	if e != nil {
-		panic("input closed; cancelled")
-	}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return def
-	}
-	return s
-}
-func secret(label string) (string, error) {
-	fmt.Fprintln(os.Stderr, label)
-	var c *exec.Cmd
-	if runtime.GOOS == "windows" {
-		c = exec.Command("powershell", "-NoProfile", "-Command", `$s=Read-Host -AsSecureString; $p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try {[Runtime.InteropServices.Marshal]::PtrToStringBSTR($p)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}`)
-	} else {
-		c = exec.Command("sh", "-c", `old=$(stty -g </dev/tty) || exit 1; trap 'stty "$old" </dev/tty' EXIT INT TERM; stty -echo </dev/tty; IFS= read -r value </dev/tty; printf '%s' "$value"`)
-	}
-	c.Stderr = os.Stderr
-	b, e := c.Output()
-	fmt.Fprintln(os.Stderr)
-	return strings.TrimRight(string(b), "\r\n"), e
-}
 func command(ctx context.Context, dir string, args ...string) error {
 	c := toolCommand(ctx, args...)
 	c.Dir = dir
@@ -228,106 +165,21 @@ func confirm() error {
 	return nil
 }
 
-var countdownStep = time.Second
-
-func timedChoice(defaultYes bool) (bool, error) {
-	if runtime.GOOS != "windows" {
-		probe := exec.Command("stty", "-g")
-		probe.Stdin = os.Stdin
-		if old, e := probe.Output(); e == nil {
-			defer func() {
-				restore := exec.Command("stty", strings.TrimSpace(string(old)))
-				restore.Stdin = os.Stdin
-				_ = restore.Run()
-			}()
-		}
-	}
-
-	terminal := interactiveOutput()
-	defer finishCountdown(os.Stdout, terminal)
-	exe, e := os.Executable()
-	if e != nil {
-		return false, e
-	}
-	childArg := "--confirm-child"
-	if !defaultYes {
-		childArg = "--confirm-child-no"
-	}
-	c := exec.Command(exe, childArg)
-	c.Stdin = os.Stdin
-	if e = c.Start(); e != nil {
-		return false, e
-	}
-	done := make(chan error, 1)
-	go func() { done <- c.Wait() }()
-	defer func() {
-		if c.Process != nil {
-			_ = c.Process.Kill()
-		}
-	}()
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
-	defer signal.Stop(signals)
-	for i := 5; i > 0; i-- {
-		writeCountdown(os.Stdout, i, defaultYes, terminal)
-		select {
-		case e := <-done:
-			if e != nil {
-				if exit, ok := e.(*exec.ExitError); ok && exit.ExitCode() == 3 {
-					return false, nil
-				}
-				return false, errors.New("input closed or cancelled")
-			}
-			return true, nil
-		case <-signals:
-			return false, errors.New("deployment cancelled")
-		case <-time.After(countdownStep):
-		}
-	}
-	_ = c.Process.Kill()
-	e = <-done
-	_ = e
-	return defaultYes, nil
-}
 func build(ctx context.Context, root string, force bool) (string, error) {
 	out := filepath.Join(root, "dist", "ocr-bench")
 	if e := os.MkdirAll(out, 0700); e != nil {
 		return "", e
 	}
-	version, e := output(ctx, "go", "version")
+	unlock, e := operationLock(filepath.Join(out, "build.lock"))
 	if e != nil {
 		return "", e
 	}
-	h := sha256.New()
-	h.Write(version)
-	buildEnv, _ := json.Marshal(map[string]string{"GOFLAGS": os.Getenv("GOFLAGS"), "GOTOOLCHAIN": os.Getenv("GOTOOLCHAIN"), "GOEXPERIMENT": os.Getenv("GOEXPERIMENT")})
-	h.Write(buildEnv)
-	h.Write([]byte("ocr-bench-build-v1/linux/arm64/cgo0/trimpath/lambda.norpc/zip"))
-	e = filepath.WalkDir(root, func(path string, d os.DirEntry, e error) error {
-		if e != nil {
-			return e
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "dist" || d.Name() == "deployment-reports" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		rel, _ := filepath.Rel(root, path)
-		if strings.HasSuffix(path, ".go") || d.Name() == "go.mod" || d.Name() == "go.sum" {
-			b, e := os.ReadFile(path)
-			if e != nil {
-				return e
-			}
-			manifest, _ := json.Marshal([]string{filepath.ToSlash(rel), string(b)})
-			h.Write(manifest)
-		}
-		return nil
-	})
+	defer unlock()
+	fingerprint, e := buildFingerprint(ctx, root)
 	if e != nil {
 		return "", e
 	}
-	fingerprint := hex.EncodeToString(h.Sum(nil))
+
 	archive := filepath.Join(out, "lambda.zip")
 	marker := archive + ".json"
 	var old struct{ Input, Artifact string }
@@ -379,6 +231,13 @@ func build(ctx context.Context, root string, force bool) (string, error) {
 	if e = f.Close(); e != nil {
 		return "", e
 	}
+	after, e := buildFingerprint(ctx, root)
+	if e != nil {
+		return "", e
+	}
+	if after != fingerprint {
+		return "", errors.New("build inputs changed during compilation; retry")
+	}
 	b, e = os.ReadFile(f.Name())
 	if e != nil {
 		return "", e
@@ -391,10 +250,11 @@ func build(ctx context.Context, root string, force bool) (string, error) {
 	return archive, atomicWrite(marker, manifest)
 }
 func run() (runErr error) {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	env := fs.String("environment", "", "isolated environment")
-	action := fs.String("action", "", "setup, build, preview, deploy, status, destroy, github-setup, report (default: deploy interactively, preview in CI)")
+	action := fs.String("action", "", "setup, build, clean-cache, preview, deploy, status, destroy, github-setup, report (default: deploy interactively, preview in CI)")
 	profile := fs.String("profile", "", "AWS SSO profile (omit in CI)")
 	region := fs.String("region", "", "AWS region")
 	account := fs.String("account", "", "expected AWS account")
@@ -403,25 +263,64 @@ func run() (runErr error) {
 	approve := fs.Bool("approve", false, "explicit apply approval")
 	project := fs.String("project", "", "deployment project name (saved after first run)")
 	_ = fs.Bool("init-stack", false, "deprecated: stacks are detected automatically")
+	exportPath := fs.String("export-settings", "", "export allowlisted nonsecret settings and exit before AWS access")
+	importPath := fs.String("import-settings", "", "import compatible nonsecret settings; never import ownership/success")
+	workers := fs.Int("workers", 2, "maximum concurrent prerequisite checks (1..8)")
 	force := fs.Bool("force-rebuild", false, "ignore build cache")
 	reconfigure := fs.Bool("reconfigure", false, "ask for saved settings again")
+	adoptLegacy := fs.Bool("adopt-legacy-stack", false, "explicitly review adopting identity metadata for an existing legacy stack")
 	refreshReport := fs.Bool("refresh-report", false, "verify report presence with read-only refresh")
 	memory := fs.Int("memory", 1024, "Lambda memory MB")
-	githubRole := fs.String("github-role", "", "existing scoped OIDC deployment role")
+	githubRole := fs.String("github-role", "", "compatible OIDC role ARN; omitted derives a project/environment role")
+	githubPolicy := fs.String("github-policy", "", "reviewed least-privilege IAM policy JSON, required to create a role")
+	githubSecretVersion := fs.String("github-secret-version", "", "nonsecret rotation identifier; change to redeliver secrets")
+	skipGitHub := fs.Bool("skip-github", false, "skip optional GitHub reconciliation for this local run")
+	forceReconcile := fs.Bool("force-reconcile", false, "reconcile managed GitHub settings and redeliver the secret")
 	githubRepo := fs.String("github-repository", "", "verified repository")
-	githubEnv := fs.String("github-environment", "", "existing protected environment")
+	githubEnv := fs.String("github-environment", "", "GitHub deployment environment")
 	if e := fs.Parse(os.Args[1:]); e != nil {
 		return e
 	}
+	if os.Getenv("CI") != "" {
+		*ci = true
+	}
 	*action = defaultAction(*action, *ci)
+	if *ci && *action == "deploy" && !*approve {
+		return errors.New("noninteractive deploy requires explicit --action deploy --approve")
+	}
+	if *ci && (*profile != "" || os.Getenv("AWS_PROFILE") != "" || os.Getenv("AWS_DEFAULT_PROFILE") != "") {
+		return errors.New("CI must use OIDC/assumed-role credentials, not --profile")
+	}
+
 	if *refreshReport && *action != "report" {
 		return errors.New("--refresh-report requires --action report")
 	}
-	allowedActions := map[string]bool{"setup": true, "build": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true, "report": true}
+	allowedActions := map[string]bool{"setup": true, "build": true, "clean-cache": true, "preview": true, "deploy": true, "status": true, "destroy": true, "github-setup": true, "report": true}
 	if !allowedActions[*action] {
 		return errors.New("unknown action")
 	}
 	banner(*action, *env)
+	if *action == "clean-cache" {
+		root, e := os.Getwd()
+		if e != nil {
+			return e
+		}
+		dir := filepath.Join(root, "dist", "ocr-bench")
+		if e = os.MkdirAll(dir, 0700); e != nil {
+			return e
+		}
+		unlock, e := operationLock(filepath.Join(dir, "build.lock"))
+		if e != nil {
+			return e
+		}
+		defer unlock()
+		for _, name := range []string{"lambda.zip", "lambda.zip.json"} {
+			if e = os.Remove(filepath.Join(dir, name)); e != nil && !os.IsNotExist(e) {
+				return e
+			}
+		}
+		return nil
+	}
 	if *action == "build" {
 		root, e := os.Getwd()
 		if e != nil {
@@ -438,11 +337,20 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
+	// Pulumi writes shared workspace files even across environments.
+	workspaceUnlock, e := operationLock(filepath.Join(local, "workspace.lock"))
+	if e != nil {
+		return e
+	}
+	defer workspaceUnlock()
 	detail("Project", projectName)
-	var projectFlags struct{ Environment string }
+	var projectFlags struct {
+		Version     int
+		Environment string
+	}
 	projectFlagsPath := filepath.Join(local, "flags.json")
 	if b, err := os.ReadFile(projectFlagsPath); err == nil {
-		if json.Unmarshal(b, &projectFlags) != nil {
+		if json.Unmarshal(b, &projectFlags) != nil || projectFlags.Version > 1 {
 			return errors.New("invalid .deploy/flags.json")
 		}
 		if *env == "" {
@@ -454,7 +362,15 @@ func run() (runErr error) {
 		if *ci {
 			return errors.New("--environment required")
 		}
-		*env = prompt("Environment (dev, qa, or custom test name)", "dev")
+		names := []string{"dev", "qa"}
+		if entries, err := os.ReadDir(filepath.Join(central, "environments")); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() && entry.Name() != "dev" && entry.Name() != "qa" {
+					names = append(names, entry.Name())
+				}
+			}
+		}
+		*env = prompt("Environment ("+strings.Join(names, ", ")+", or custom test name)", "dev")
 	}
 	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`).MatchString(*env) || *env == "prod" {
 		return errors.New("use a validated non-production benchmark environment")
@@ -466,6 +382,7 @@ func run() (runErr error) {
 		_, e := build(ctx, root, *force)
 		return e
 	}
+	projectFlags.Version = 1
 	projectFlags.Environment = *env
 	flagsBytes, _ := json.MarshalIndent(projectFlags, "", "  ")
 	if e = atomicWrite(projectFlagsPath, flagsBytes); e != nil {
@@ -473,11 +390,11 @@ func run() (runErr error) {
 	}
 	private := filepath.Join(central, "environments", *env)
 	localEnv := filepath.Join(local, "environments", *env)
-	if e = os.MkdirAll(localEnv, 0700); e != nil {
+	if e = privateDirectory(localEnv); e != nil {
 		return e
 	}
 
-	if e = os.MkdirAll(private, 0700); e != nil {
+	if e = privateDirectory(private); e != nil {
 		return e
 	}
 	lock, e := os.OpenFile(filepath.Join(private, "operation.lock"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -486,16 +403,19 @@ func run() (runErr error) {
 	}
 	lock.Close()
 	defer os.Remove(lock.Name())
-	var deploymentFlags struct{ Memory int }
+	var deploymentFlags struct{ Version, Memory int }
 	memoryExplicit := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "memory" {
 			memoryExplicit = true
 		}
 	})
+	if *ci && !memoryExplicit {
+		return errors.New("--memory required in CI; do not infer reviewed deployment configuration")
+	}
 	deploymentFlagsPath := filepath.Join(private, "flags.json")
 	if b, err := os.ReadFile(deploymentFlagsPath); err == nil {
-		if json.Unmarshal(b, &deploymentFlags) != nil {
+		if json.Unmarshal(b, &deploymentFlags) != nil || deploymentFlags.Version > 1 {
 			return errors.New("invalid deployment flags")
 		}
 		if !memoryExplicit && deploymentFlags.Memory >= 128 && deploymentFlags.Memory <= 10240 {
@@ -505,6 +425,7 @@ func run() (runErr error) {
 	if *memory < 128 || *memory > 10240 {
 		return errors.New("memory must be 128..10240 MB")
 	}
+	deploymentFlags.Version = 1
 	deploymentFlags.Memory = *memory
 	fb, _ := json.MarshalIndent(deploymentFlags, "", "  ")
 	if e = atomicWrite(deploymentFlagsPath, fb); e != nil {
@@ -530,7 +451,30 @@ func run() (runErr error) {
 		if json.Unmarshal(b, &saved) != nil || saved.Version != 1 || saved.Environment != *env {
 			return errors.New("invalid settings")
 		}
+	} else if !os.IsNotExist(e) {
+		return e
 	}
+	if *exportPath != "" {
+		if saved.Account == "" {
+			return errors.New("no saved settings to export")
+		}
+		return exportSettings(*exportPath, projectName, saved)
+	}
+	if *importPath != "" {
+		imported, err := importSettings(*importPath, projectName, *env)
+		if err != nil {
+			return err
+		}
+		if err = verifySavedTarget(saved, imported.Account, imported.Region, imported.Backend); err != nil {
+			return err
+		}
+		saved = imported
+		note("Using compatible imported nonsecret settings; remote discovery remains required")
+	}
+	if e = verifySavedTarget(saved, *account, *region, *backend); e != nil {
+		return e
+	}
+
 	choose := func(v *string, prior, label, def string) error {
 		if *v != "" {
 			return nil
@@ -550,7 +494,20 @@ func run() (runErr error) {
 		return nil
 	}
 	if !*ci {
-		if e = choose(profile, saved.Profile, "AWS SSO profile", "default"); e != nil {
+		profileDefault := ""
+		profiles, err := output(ctx, "aws", "configure", "list-profiles")
+		if err != nil {
+			return fmt.Errorf("list AWS profiles; install AWS CLI v2 and run aws configure sso: %w", err)
+		}
+		for _, p := range strings.Fields(string(profiles)) {
+			if profileDefault == "" || p == "default" {
+				profileDefault = p
+			}
+		}
+		if profileDefault == "" {
+			return errors.New("no AWS profiles; run aws configure sso first")
+		}
+		if e = choose(profile, saved.Profile, "AWS SSO profile", profileDefault); e != nil {
 			return e
 		}
 		os.Setenv("AWS_PROFILE", *profile)
@@ -569,13 +526,21 @@ func run() (runErr error) {
 	if *ci && (*account == "" || *backend == "") {
 		return errors.New("--account and --backend required in CI")
 	}
-	if *account == "" && !*reconfigure {
+	if *account == "" {
 		*account = saved.Account
 	}
-	if *backend == "" && !*reconfigure {
+	if *backend == "" {
 		*backend = saved.Backend
 	}
 
+	if e = verifySavedTarget(saved, *account, *region, *backend); e != nil {
+		return e
+	}
+	if !*ci {
+		if e = verifySSOProfile(ctx, *profile); e != nil {
+			return e
+		}
+	}
 	os.Setenv("AWS_REGION", *region)
 	os.Setenv("AWS_DEFAULT_REGION", *region)
 	for _, tool := range []string{"aws", "pulumi", "go"} {
@@ -583,21 +548,26 @@ func run() (runErr error) {
 			return fmt.Errorf("install %s and add it to PATH", tool)
 		}
 	}
-	awsVersion, err := output(ctx, "aws", "--version")
-	if err != nil || !strings.Contains(string(awsVersion), "aws-cli/2.") {
-		return errors.New("AWS CLI v2 required")
+	if e = prerequisites(ctx, *workers, []func() error{
+		func() error {
+			b, e := output(ctx, "aws", "--version")
+			if e != nil || !strings.Contains(string(b), "aws-cli/2.") {
+				return errors.New("AWS CLI v2 required")
+			}
+			return nil
+		},
+		func() error {
+			b, e := output(ctx, "pulumi", "version")
+			if e != nil || !strings.HasPrefix(strings.TrimSpace(string(b)), "v3.") {
+				return errors.New("Pulumi CLI v3 required")
+			}
+			return nil
+		},
+	}); e != nil {
+		return e
 	}
-	pulumiVersion, err := output(ctx, "pulumi", "version")
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(pulumiVersion)), "v3.") {
-		return errors.New("Pulumi CLI v3 required")
-	}
-	identity, e := output(ctx, "aws", "sts", "get-caller-identity", "--output", "json")
-	if e != nil && !*ci {
-		if e = command(ctx, root, "aws", "sso", "login", "--profile", *profile); e != nil {
-			return e
-		}
-		identity, e = output(ctx, "aws", "sts", "get-caller-identity", "--output", "json")
-	}
+	identity, e := authenticatedIdentity(*ci, *profile, func() ([]byte, error) { return output(ctx, "aws", "sts", "get-caller-identity", "--output", "json") }, func() error { return command(ctx, root, "aws", "sso", "login", "--profile", *profile) })
+
 	if e != nil {
 		return e
 	}
@@ -607,6 +577,12 @@ func run() (runErr error) {
 	}
 	if *account != "" && *account != who.Account {
 		return errors.New("AWS account differs from saved/explicit target; use --reconfigure to deliberately change it")
+	}
+	if *ci && !strings.Contains(who.Arn, ":assumed-role/") {
+		return errors.New("CI requires an assumed role")
+	}
+	if !*ci && !strings.Contains(who.Arn, ":assumed-role/AWSReservedSSO_") {
+		return errors.New("interactive deployments require an IAM Identity Center SSO profile")
 	}
 	*account = who.Account
 	heading("AWS account")
@@ -640,7 +616,7 @@ func run() (runErr error) {
 			name := prompt("S3 bucket name", "")
 			*backend = "s3://" + name + "/infra-composer/" + projectName
 		} else {
-			if *action == "status" || *action == "destroy" || *action == "report" {
+			if *action == "status" || *action == "destroy" || *action == "report" || *action == "github-setup" {
 				return errors.New("select an existing state bucket for status/destroy")
 			}
 			name, err := bootstrapBucket(ctx, private, *account, *region)
@@ -687,6 +663,17 @@ func run() (runErr error) {
 				return errors.New("state bucket region differs from selected region")
 			}
 		}
+	}
+	policyBytes, e := output(ctx, "aws", "s3api", "get-bucket-policy", "--bucket", bucket, "--expected-bucket-owner", *account, "--output", "json")
+	if e != nil {
+		return e
+	}
+	if e = requireStateTLS(policyBytes, bucket); e != nil {
+		return e
+	}
+	statePrefix := strings.SplitN(strings.TrimPrefix(*backend, "s3://"), "/", 2)[1]
+	if _, e = output(ctx, "aws", "s3api", "list-objects-v2", "--bucket", bucket, "--prefix", statePrefix+"/", "--max-keys", "1", "--expected-bucket-owner", *account, "--output", "json"); e != nil {
+		return fmt.Errorf("state prefix is inaccessible: %w", e)
 	}
 	// Recover a legacy bootstrap receipt only when it matches the verified target.
 	if _, err := os.Stat(filepath.Join(private, "state-bucket.json")); os.IsNotExist(err) && projectName == "card-capture-ocr-bench" && (*action == "setup" || *action == "preview" || *action == "deploy") {
@@ -735,9 +722,19 @@ func run() (runErr error) {
 		os.Setenv("PULUMI_CONFIG_PASSPHRASE", pass)
 		defer os.Unsetenv("PULUMI_CONFIG_PASSPHRASE")
 	}
+	githubOpts := githubOptions{Root: root, Settings: Settings{1, *env, *profile, *region, *account, *backend}, Role: *githubRole, Repository: *githubRepo, Environment: *githubEnv, Project: projectName, Policy: *githubPolicy, SecretVersion: *githubSecretVersion, Force: *forceReconcile, Private: private}
 	if *action == "github-setup" {
-		return setupGitHub(ctx, Settings{1, *env, *profile, *region, *account, *backend}, *githubRole, *githubRepo, *githubEnv, projectName)
+		if *ci {
+			return errors.New("GitHub setup requires interactive review")
+		}
+		return githubWizard(ctx, githubOpts, true)
 	}
+	if !*ci && !*skipGitHub && (*action == "setup" || *action == "deploy") {
+		if e = githubWizard(ctx, githubOpts, *reconfigure); e != nil {
+			return e
+		}
+	}
+
 	dir := filepath.Join(root, "infrastructure", "cmd", "ocr-bench")
 	stack := "ocr-" + *env
 	if e = command(ctx, dir, "pulumi", "login", *backend, "--non-interactive"); e != nil {
@@ -759,6 +756,23 @@ func run() (runErr error) {
 	}); e != nil {
 		return e
 	}
+	stateBytes, e := outputIn(ctx, dir, "pulumi", "stack", "export", "--stack", stack)
+	if e != nil {
+		return e
+	}
+	if *adoptLegacy {
+		if *ci {
+			return errors.New("legacy identity adoption requires interactive review")
+		}
+		if e = deliberate("Type the stack name after verifying its original ownership", stack); e != nil {
+			return e
+		}
+	}
+	e = verifyStackIdentity(stateBytes, projectName, *env, *adoptLegacy)
+	clear(stateBytes)
+	if e != nil {
+		return e
+	}
 	var activeFeatureReport *featureReport
 	if *action == "report" || *action == "preview" || *action == "deploy" {
 		attempt := newFeatureReport(ctx, root, dir, stack, private, local, Settings{1, *env, *profile, *region, *account, *backend}, projectName, *action)
@@ -773,28 +787,33 @@ func run() (runErr error) {
 		eventFile.Close()
 		defer func() {
 			if err := attempt.finish(ctx, runErr, attempt.applied); err != nil {
-				fmt.Fprintln(os.Stderr, "Feature report could not be saved:", err)
+				runErr = errors.Join(runErr, fmt.Errorf("feature report could not be saved: %w", err))
 			}
 		}()
 		activeFeatureReport = attempt
 
 	}
 	if *action == "status" {
-		return command(ctx, dir, "pulumi", "stack", "output", "--stack", stack, "--json")
+		raw, e := outputIn(ctx, dir, "pulumi", "stack", "output", "--stack", stack, "--json")
+		if e != nil {
+			return e
+		}
+		safe, e := safeOutputs(raw)
+		if e != nil {
+			return e
+		}
+		fmt.Println(string(safe))
+		return nil
 	}
 	if *action == "destroy" {
 		if *ci {
 			return errors.New("interactive teardown confirmation required")
 		}
-		heading("Destroy this stack? [Y/n]")
+		heading("Destroy this stack?")
 		detail("Stack", stack)
 		note("This removes stack resources; protected resources can still block deletion.")
-		yes, err := timedChoice(true)
-		if err != nil {
+		if err := deliberate("Type the stack name to destroy", stack); err != nil {
 			return err
-		}
-		if !yes {
-			return errors.New("destroy cancelled")
 		}
 		return command(ctx, dir, "pulumi", "destroy", "--stack", stack, "--yes")
 	}
@@ -817,6 +836,16 @@ func run() (runErr error) {
 	}
 	plan := filepath.Join(private, "plan.json")
 	defer os.Remove(plan)
+	artifactUnlock, e := operationLock(filepath.Join(filepath.Dir(archive), "build.lock"))
+	if e != nil {
+		return e
+	}
+	defer artifactUnlock()
+	archiveBytes, e := os.ReadFile(archive)
+	if e != nil {
+		return e
+	}
+	approvedArchive := sha256.Sum256(archiveBytes)
 	heading("Preview changes")
 	if e = command(ctx, dir, "pulumi", "preview", "--stack", stack, "--save-plan", plan, "--event-log", activeFeatureReport.previewLog, "--non-interactive"); e != nil {
 		return e
@@ -824,6 +853,7 @@ func run() (runErr error) {
 	if *action == "preview" {
 		return nil
 	}
+
 	planBytes, e := os.ReadFile(plan)
 	if e != nil {
 		return e
@@ -832,21 +862,35 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
+	heading("Previewed target")
+	for _, pair := range [][2]string{{"Project", projectName}, {"Account", *account}, {"Region", *region}, {"Environment", *env}, {"Stack", stack}, {"Backend", *backend}, {"Saved plan", plan}} {
+		detail(pair[0], pair[1])
+	}
 	if destructive {
 		if *ci {
 			return errors.New("destructive plan requires separate operator review")
 		}
 		heading("This plan includes deletion or replacement")
 		detail("Stack", stack)
-		note("The following default-yes countdown approves these previewed operations.")
+		if e = deliberate("Type the stack name to approve deletion/replacement", stack); e != nil {
+			return e
+		}
 	}
 
 	if *ci {
 		if !*approve {
 			return errors.New("--approve required for noninteractive deploy")
 		}
-	} else if e = confirm(); e != nil {
-		return e
+	} else if !destructive {
+		if e = confirm(); e != nil {
+			return e
+		}
+	}
+	if current, err := os.ReadFile(plan); err != nil || sha256.Sum256(current) != sha256.Sum256(planBytes) {
+		return errors.New("saved plan changed after approval; preview again")
+	}
+	if current, err := os.ReadFile(archive); err != nil || sha256.Sum256(current) != approvedArchive {
+		return errors.New("artifact changed after preview; preview again")
 	}
 	activeFeatureReport.applied = true
 	heading("Apply previewed changes")
@@ -857,7 +901,19 @@ func run() (runErr error) {
 	if e != nil {
 		return e
 	}
+	outputs, e = safeOutputs(outputs)
+	if e != nil {
+		return e
+	}
 	if e = atomicWrite(filepath.Join(private, "outputs.json"), outputs); e != nil {
+		return e
+	}
+	success, _ := json.Marshal(struct {
+		Version                                                           int
+		Project, Environment, Account, Region, Backend, Stack, PlanSHA256 string
+		AppliedAt                                                         time.Time
+	}{1, projectName, *env, *account, *region, *backend, stack, canonicalHash(json.RawMessage(planBytes)), time.Now().UTC()})
+	if e = atomicWrite(filepath.Join(private, "applied.json"), success); e != nil {
 		return e
 	}
 	heading("Deployment complete")
