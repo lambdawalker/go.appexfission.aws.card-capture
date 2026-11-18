@@ -1,5 +1,7 @@
 # Isolated OCR test bench (Development)
 
+The root launchers use the shared [Infra Composer CLI](https://github.com/lambdawalker/go.infra.composer/tree/cfce9564fec239531a392b37078a8ccc350c28cd/deploycli), pinned in `tools/deploy/go.mod`. The benchmark's target, build package and output allowlist are in `deploy.json`. The launchers reuse existing `ocr-<environment>` stacks, S3 backends, scoped records and vaults.
+
 This bench measures the existing production `BedrockExtractor` from the console. It deploys a private S3 bucket, an ARM64 Lambda, IAM role/policies and seven-day CloudWatch logs. No Android, Cognito, onboarding API, runtime-policy/reset tables, SQS, DNS or SES deployment is needed. This is the direct-extraction milestone; queued full-pipeline comparison remains future work.
 
 The baseline uses the existing model `google.gemma-4-e2b`, medium reasoning, 4096-token ceiling, JPEG preprocessing and 55-second inference deadline. The Lambda has a 90-second timeout and configurable memory, default 1024 MB. Production defaults are unchanged. The optional synchronous extractor observer reports preparation and complete response-read durations only.
