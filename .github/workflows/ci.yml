@@ -20,8 +20,7 @@ jobs:
       - run: go vet ./...
         working-directory: infrastructure
       - run: ./scripts/build.sh
-      - run: go run ./cmd/deploy --action build
-      - run: GOOS=windows GOARCH=amd64 go build -o /tmp/ocr-deploy.exe ./cmd/deploy
+      - run: ./deploy.sh --action build
   windows-launcher:
     runs-on: windows-latest
     steps:
@@ -29,7 +28,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: 1.27.3
-      - run: go test ./cmd/deploy
       - name: Batch launcher from another working directory
         shell: pwsh
         run: |

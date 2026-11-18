@@ -1,5 +1,7 @@
 # Deployment alignment audit
 
+The matrix records the [alignment revision](https://github.com/lambdawalker/go.appexfission.aws.card-capture/tree/b711fe98d5809717b6ec3cbfe7a8e153a52323ba). The deployment implementation and its tests moved from `cmd/deploy` to the shared [Infra Composer CLI](https://github.com/lambdawalker/go.infra.composer/tree/cfce9564fec239531a392b37078a8ccc350c28cd/deploycli).
+
 Audit date: 2026-11-17. Authoritative requirements: [Go/AWS](https://github.com/lambdawalker/agents.prompts/blob/main/prompts/libraries/go-aws.md), [shared](https://github.com/lambdawalker/agents.prompts/blob/main/prompts/libraries/shared.md), and the linked [Composer report protocol](https://github.com/lambdawalker/design.infra.composer/blob/main/docs/artifact-reports.md). No open repository PRs existed at the initial inspection. Other repositories were not used as compliance evidence.
 
 Scope: this repository's Go deployment program owns the **isolated OCR benchmark**. The host-integrated card-capture infrastructure and the separately documented demo invitation stack retain their existing owners, entrypoints and identities. This change does not migrate either into a new application architecture.
